@@ -187,6 +187,7 @@ class MainActivity : AppCompatActivity() {
             if (prefs.getBoolean("night", false)) AppCompatDelegate.MODE_NIGHT_YES
             else AppCompatDelegate.MODE_NIGHT_NO
         )
+        updateThemeIcon()
 
         // 恢复上次选择的保存目录
         prefs.getString("save_dir", null)?.let {
@@ -293,6 +294,7 @@ class MainActivity : AppCompatActivity() {
             AppCompatDelegate.setDefaultNightMode(
                 if (night) AppCompatDelegate.MODE_NIGHT_NO else AppCompatDelegate.MODE_NIGHT_YES
             )
+            updateThemeIcon()
         }
 
         // 📚 一键整本（再次点击=停止）
@@ -600,6 +602,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ================= 暂停 / 停止 / 目录 =================
+
+    /** 主题按钮图标：浅色主题显示月亮（点击切换到深色），深色主题显示太阳 */
+    private fun updateThemeIcon() {
+        val night = prefs.getBoolean("night", false)
+        findViewById<ImageButton>(R.id.btnTheme)
+            .setImageResource(if (night) R.drawable.ic_sun else R.drawable.ic_theme)
+    }
 
     /** 暂停时挂起后续步骤，继续后恢复 */
     private fun resumeAware(cont: () -> Unit) {

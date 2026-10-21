@@ -204,7 +204,7 @@
                 android:layout_marginStart="12dp"
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="打开小说所在文件夹"
-                android:src="@android:drawable/ic_menu_manage"
+                android:src="@drawable/ic_folder"
                 android:tint="@color/icon_purple" />
 
             <ImageButton
