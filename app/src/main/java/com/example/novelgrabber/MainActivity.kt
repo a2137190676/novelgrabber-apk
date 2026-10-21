@@ -88,7 +88,7 @@ class MainActivity : AppCompatActivity() {
     private var pageTitle = ""
 
     companion object {
-        private const val PAGE_LOAD_TIMEOUT_MS = 60000L
+        private const val PAGE_LOAD_TIMEOUT_MS = 6000000L
 
         /** 提取当前页正文 */
         private const val JS_GRAB = """
@@ -355,7 +355,7 @@ class MainActivity : AppCompatActivity() {
                 setStatus("⏱️ 加载超时，跳过：$title")
                 onBookChapterDone(title)
             }
-        }, 60000)
+        }, 6000000)
     }
 
     private fun grabBookCurrentPage(url: String) {
