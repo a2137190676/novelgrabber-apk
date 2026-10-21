@@ -26,7 +26,7 @@
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="后退"
                 android:src="@android:drawable/ic_media_previous"
-                android:tint="#2B4C8C" />
+                android:tint="@color/icon_tint" />
 
             <ImageButton
                 android:id="@+id/btnForward"
@@ -36,7 +36,7 @@
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="前进"
                 android:src="@android:drawable/ic_media_next"
-                android:tint="#2B4C8C" />
+                android:tint="@color/icon_tint" />
 
             <EditText
                 android:id="@+id/etAddress"
@@ -50,8 +50,8 @@
                 android:inputType="textUri"
                 android:paddingHorizontal="12dp"
                 android:singleLine="true"
-                android:textColor="#1A2B4C"
-                android:textColorHint="#801A2B4C"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_hint"
                 android:textSize="13sp" />
 
             <ImageButton
@@ -61,7 +61,7 @@
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="前往"
                 android:src="@android:drawable/ic_menu_send"
-                android:tint="#2B4C8C" />
+                android:tint="@color/icon_tint" />
 
             <ImageButton
                 android:id="@+id/btnStar"
@@ -71,7 +71,7 @@
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="收藏当前页"
                 android:src="@android:drawable/btn_star_big_off"
-                android:tint="#F5A623" />
+                android:tint="@color/icon_accent" />
         </LinearLayout>
 
         <LinearLayout
@@ -94,8 +94,8 @@
                 android:inputType="text"
                 android:paddingHorizontal="12dp"
                 android:singleLine="true"
-                android:textColor="#1A2B4C"
-                android:textColorHint="#801A2B4C"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_hint"
                 android:textSize="13sp" />
 
             <ImageButton
@@ -106,7 +106,7 @@
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="选择 TXT 保存文件夹"
                 android:src="@android:drawable/ic_menu_upload"
-                android:tint="#2B4C8C" />
+                android:tint="@color/icon_tint" />
         </LinearLayout>
     </LinearLayout>
 
@@ -115,11 +115,11 @@
         android:id="@+id/tvStatus"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#4DFFFFFF"
+        android:background="@color/status_bg"
         android:gravity="center"
         android:padding="6dp"
         android:text="就绪"
-        android:textColor="#2B4C8C"
+        android:textColor="@color/icon_tint"
         android:textSize="12sp"
         android:visibility="gone" />
 
@@ -141,7 +141,7 @@
             android:layout_height="3dp"
             android:layout_gravity="top"
             android:max="100"
-            android:progressTint="#3D5AFE" />
+            android:progressTint="@color/accent" />
     </FrameLayout>
 
     <!-- ===== 底部玻璃操作栏 ===== -->
@@ -195,7 +195,7 @@
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="收藏夹"
                 android:src="@android:drawable/ic_menu_myplaces"
-                android:tint="#F5A623" />
+                android:tint="@color/icon_accent" />
 
             <ImageButton
                 android:id="@+id/btnOpenDir"
@@ -203,9 +203,9 @@
                 android:layout_height="42dp"
                 android:layout_marginStart="12dp"
                 android:background="@drawable/btn_secondary"
-                android:contentDescription="打开下载目录"
+                android:contentDescription="打开小说所在文件夹"
                 android:src="@android:drawable/ic_menu_manage"
-                android:tint="#8E44AD" />
+                android:tint="@color/icon_purple" />
 
             <ImageButton
                 android:id="@+id/btnPause"
@@ -215,17 +215,17 @@
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="暂停/继续"
                 android:src="@android:drawable/ic_media_pause"
-                android:tint="#2E8B57" />
+                android:tint="@color/icon_green" />
 
             <ImageButton
-                android:id="@+id/btnStop"
+                android:id="@+id/btnTheme"
                 android:layout_width="42dp"
                 android:layout_height="42dp"
                 android:layout_marginStart="12dp"
                 android:background="@drawable/btn_secondary"
-                android:contentDescription="停止下载"
-                android:src="@android:drawable/ic_menu_close_clear_cancel"
-                android:tint="#D95050" />
+                android:contentDescription="切换深色/浅色主题"
+                android:src="@drawable/ic_theme"
+                android:tint="@color/icon_accent" />
 
             <ImageButton
                 android:id="@+id/btnFinish"
@@ -235,7 +235,7 @@
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="打开 TXT"
                 android:src="@android:drawable/ic_menu_save"
-                android:tint="#2B4C8C" />
+                android:tint="@color/icon_tint" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

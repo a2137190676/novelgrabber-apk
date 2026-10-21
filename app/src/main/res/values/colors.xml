@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 浅色 · 液态玻璃 -->
+    <color name="bg_start">#BFE0FF</color>
+    <color name="bg_center">#DCE8FF</color>
+    <color name="bg_end">#F3E8FF</color>
+
+    <color name="glass_solid">#66FFFFFF</color>
+    <color name="glass_stroke">#80FFFFFF</color>
+    <color name="glass_bar_solid">#66FFFFFF</color>
+
+    <color name="btn_primary_solid">#997C9FFF</color>
+    <color name="btn_primary_stroke">#B3FFFFFF</color>
+    <color name="btn_secondary_solid">#80FFFFFF</color>
+    <color name="btn_secondary_stroke">#99FFFFFF</color>
+    <color name="input_solid">#59FFFFFF</color>
+    <color name="input_stroke">#99FFFFFF</color>
+
+    <color name="text_primary">#1A2B4C</color>
+    <color name="text_hint">#801A2B4C</color>
+    <color name="text_secondary">#2B4C8C</color>
+
+    <color name="icon_tint">#2B4C8C</color>
+    <color name="icon_accent">#F5A623</color>
+    <color name="icon_purple">#8E44AD</color>
+    <color name="icon_green">#2E8B57</color>
+
+    <color name="accent">#3D5AFE</color>
+    <color name="status_bg">#4DFFFFFF</color>
+    <color name="status_bar">#CFEAFF</color>
+</resources>

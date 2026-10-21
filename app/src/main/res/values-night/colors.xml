@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色 · 午夜玻璃 -->
+    <color name="bg_start">#1B2A4A</color>
+    <color name="bg_center">#16213E</color>
+    <color name="bg_end">#0F172A</color>
+
+    <color name="glass_solid">#B3222F4F</color>
+    <color name="glass_stroke">#40FFFFFF</color>
+    <color name="glass_bar_solid">#B31B2A4A</color>
+
+    <color name="btn_primary_solid">#B35C7CE0</color>
+    <color name="btn_primary_stroke">#4DFFFFFF</color>
+    <color name="btn_secondary_solid">#40FFFFFF</color>
+    <color name="btn_secondary_stroke">#33FFFFFF</color>
+    <color name="input_solid">#33FFFFFF</color>
+    <color name="input_stroke">#40FFFFFF</color>
+
+    <color name="text_primary">#E6EEFF</color>
+    <color name="text_hint">#73A0C4</color>
+    <color name="text_secondary">#9FB3D9</color>
+
+    <color name="icon_tint">#CFE0FF</color>
+    <color name="icon_accent">#FFC94D</color>
+    <color name="icon_purple">#B98CF0</color>
+    <color name="icon_green">#6FCF97</color>
+
+    <color name="accent">#7C9FFF</color>
+    <color name="status_bg">#33222F4F</color>
+    <color name="status_bar">#16213E</color>
+</resources>

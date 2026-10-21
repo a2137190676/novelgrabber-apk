@@ -30,6 +30,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.app.AppCompatActivity
 import androidx.documentfile.provider.DocumentFile
 import java.io.OutputStream
@@ -177,6 +178,12 @@ class MainActivity : AppCompatActivity() {
         btnGrab = findViewById(R.id.btnGrab)
         prefs = getSharedPreferences("novelgrabber", MODE_PRIVATE)
 
+        // 应用上次选择的主题（浅色/深色）
+        AppCompatDelegate.setDefaultNightMode(
+            if (prefs.getBoolean("night", false)) AppCompatDelegate.MODE_NIGHT_YES
+            else AppCompatDelegate.MODE_NIGHT_NO
+        )
+
         // 恢复上次选择的保存目录
         prefs.getString("save_dir", null)?.let {
             try {
@@ -266,21 +273,19 @@ class MainActivity : AppCompatActivity() {
             pickDirLauncher.launch(null)
         }
 
-        // 📂 打开下载目录
+        // 📂 打开小说所在文件夹
         findViewById<ImageButton>(R.id.btnOpenDir).setOnClickListener { openDownloadDir() }
 
         // ⏸/▶ 暂停 / 继续
         findViewById<ImageButton>(R.id.btnPause).setOnClickListener { togglePause() }
 
-        // ⏹ 停止
-        findViewById<ImageButton>(R.id.btnStop).setOnClickListener {
-            if (bookGrabbing || grabbing) {
-                stopRequested = true
-                paused = false
-                setStatus("⏹ 已请求停止，完成当前页面后结束…")
-            } else {
-                toast("当前没有进行中的下载")
-            }
+        // 🌙/☀️ 深色 / 浅色主题切换
+        findViewById<ImageButton>(R.id.btnTheme).setOnClickListener {
+            val night = prefs.getBoolean("night", false)
+            prefs.edit().putBoolean("night", !night).apply()
+            AppCompatDelegate.setDefaultNightMode(
+                if (night) AppCompatDelegate.MODE_NIGHT_NO else AppCompatDelegate.MODE_NIGHT_YES
+            )
         }
 
         // 📚 一键整本（再次点击=停止）
