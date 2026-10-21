@@ -34,6 +34,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.app.AppCompatActivity
 import androidx.documentfile.provider.DocumentFile
 import java.io.OutputStream
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -47,6 +48,9 @@ class MainActivity : AppCompatActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var bookUri: Uri? = null
+
+    /** 爬取日志（最新在前，持久化，最多 300 条） */
+    private val logs = ArrayList<String>()
     private var saveDirUri: Uri? = null
 
     /** 书签数据：list of "title|url" */
@@ -88,7 +92,7 @@ class MainActivity : AppCompatActivity() {
     private var pageTitle = ""
 
     companion object {
-        private const val PAGE_LOAD_TIMEOUT_MS = 6000000L
+        private const val PAGE_LOAD_TIMEOUT_MS = 60000000L
 
         /** 提取当前页正文 */
         private const val JS_GRAB = """
@@ -276,6 +280,9 @@ class MainActivity : AppCompatActivity() {
         // 📂 打开小说所在文件夹
         findViewById<ImageButton>(R.id.btnOpenDir).setOnClickListener { openDownloadDir() }
 
+        // 📋 查看爬取日志（超时跳过标红）
+        findViewById<ImageButton>(R.id.btnLog).setOnClickListener { showLogs() }
+
         // ⏸/▶ 暂停 / 继续
         findViewById<ImageButton>(R.id.btnPause).setOnClickListener { togglePause() }
 
@@ -353,9 +360,10 @@ class MainActivity : AppCompatActivity() {
         handler.postDelayed({
             if (bookGrabbing) {
                 setStatus("⏱️ 加载超时，跳过：$title")
+                addLog("整本超时跳过章节：《${etBookName.text}》$title · $url", true)
                 onBookChapterDone(title)
             }
-        }, 6000000)
+        }, 60000000)
     }
 
     private fun grabBookCurrentPage(url: String) {
@@ -511,6 +519,7 @@ class MainActivity : AppCompatActivity() {
         handler.postDelayed({
             if (grabbing) {
                 setStatus("⏱️ 等待超时，按已抓取内容收尾")
+                addLog("单章抓取超时收尾：$pageTitle · ${currentUrl()}", true)
                 finalizeChapter()
             }
         }, PAGE_LOAD_TIMEOUT_MS)
@@ -554,6 +563,7 @@ class MainActivity : AppCompatActivity() {
                             handler.postDelayed({
                                 if (grabbing) {
                                     setStatus("⏱️ 翻页超时，按已抓取内容收尾")
+                                    addLog("单章翻页超时收尾：$pageTitle · ${currentUrl()}", true)
                                     finalizeChapter()
                                 }
                             }, PAGE_LOAD_TIMEOUT_MS)
@@ -614,6 +624,71 @@ class MainActivity : AppCompatActivity() {
             btn.setImageResource(android.R.drawable.ic_media_pause)
             setStatus("▶ 已继续下载")
         }
+    }
+
+    // ================= 日志 =================
+
+    private fun addLog(msg: String, isError: Boolean = false) {
+        val ts = java.text.SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault())
+            .format(java.util.Date())
+        val line = (if (isError) "🔴 " else "⚪ ") + "[$ts] $msg"
+        logs.add(0, line)
+        if (logs.size > 300) logs.removeAt(logs.size - 1)
+        prefs.edit().putString("logs", org.json.JSONArray(logs).toString()).apply()
+    }
+
+    private fun loadLogs() {
+        logs.clear()
+        try {
+            val arr = org.json.JSONArray(prefs.getString("logs", "[]") ?: "[]")
+            for (i in 0 until arr.length()) logs.add(arr.getString(i))
+        } catch (_: Exception) {}
+    }
+
+    private fun showLogs() {
+        loadLogs()
+        if (logs.isEmpty()) {
+            toast("暂无日志")
+            return
+        }
+        val items = logs.toTypedArray()
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("📋 爬取日志（🔴 = 超时跳过；长按清空）")
+            .setItems(items, null)
+            .setPositiveButton("关闭", null)
+            .create()
+        dialog.listView.setOnItemLongClickListener { _, _, _, _ ->
+            AlertDialog.Builder(this)
+                .setMessage("清空全部日志？")
+                .setPositiveButton("清空") { _, _ ->
+                    logs.clear()
+                    prefs.edit().putString("logs", "[]").apply()
+                    dialog.dismiss()
+                    toast("日志已清空")
+                }
+                .setNegativeButton("取消", null).show()
+            true
+        }
+        dialog.setOnShowListener {
+            dialog.listView.adapter = object : ArrayAdapter<String>(
+                this, android.R.layout.simple_list_item_1, items
+            ) {
+                override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                    val v = super.getView(position, convertView, parent) as TextView
+                    val night = (resources.configuration.uiMode and
+                        android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                        android.content.res.Configuration.UI_MODE_NIGHT_YES
+                    if (items[position].startsWith("🔴")) {
+                        v.setTextColor(0xFFFF5252.toInt())
+                    } else {
+                        v.setTextColor(if (night) 0xFFE6EEFF.toInt() else 0xFF1A2B4C.toInt())
+                    }
+                    v.textSize = 13f
+                    return v
+                }
+            }
+        }
+        dialog.show()
     }
 
     /** 打开下载目录：自选文件夹 → 文件管理器浏览；否则打开系统下载管理 */

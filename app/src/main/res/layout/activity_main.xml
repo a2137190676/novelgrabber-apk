@@ -228,6 +228,16 @@
                 android:tint="@color/icon_accent" />
 
             <ImageButton
+                android:id="@+id/btnLog"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:layout_marginStart="12dp"
+                android:background="@drawable/btn_secondary"
+                android:contentDescription="爬取日志"
+                android:src="@android:drawable/ic_menu_info_details"
+                android:tint="@color/icon_green" />
+
+            <ImageButton
                 android:id="@+id/btnFinish"
                 android:layout_width="42dp"
                 android:layout_height="42dp"

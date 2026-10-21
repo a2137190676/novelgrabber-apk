@@ -13,8 +13,8 @@ android {
         applicationId = "com.example.novelgrabber"
         minSdk = 24
         targetSdk = 34   // Android 14
-        versionCode = 9
-        versionName = "2.6"
+        versionCode = 10
+        versionName = "2.7"
     }
 
     signingConfigs {
