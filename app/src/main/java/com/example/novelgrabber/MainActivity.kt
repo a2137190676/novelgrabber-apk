@@ -49,6 +49,15 @@ class MainActivity : AppCompatActivity() {
     /** 书签数据：list of "title|url" */
     private val bookmarks = ArrayList<Pair<String, String>>()
 
+    /** 整本下载状态 */
+    private var bookGrabbing = false
+    private var bookUriName = ""
+    private var stopRequested = false
+    private val bookChapters = ArrayList<Pair<String, String>>()
+    private var bookIdx = 0
+    private val chapterPages = StringBuilder()
+    private val chapterVisited = HashSet<String>()
+
     private val pickDirLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
@@ -125,6 +134,29 @@ class MainActivity : AppCompatActivity() {
                 return '';
             })();
         """
+
+        /**
+         * 目录页解析：提取所有章节链接（第x章/节/回/卷、纯数字序号、Chapter n）
+         */
+        private const val JS_BOOK_CHAPTERS = """
+            (function() {
+                var seen = {}, out = [];
+                var links = document.querySelectorAll('a');
+                for (var i = 0; i < links.length; i++) {
+                    var a = links[i];
+                    var t = (a.innerText || '').trim();
+                    var href = a.href || '';
+                    if (!href || href.indexOf('http') !== 0) continue;
+                    if (t.length < 2 || t.length > 60) continue;
+                    if (!(/^(第.{1,12}(章|节|回|卷))/.test(t) || /^\\d{1,4}(\\.\\d+)?$/.test(t) || /^Chapter/i.test(t))) continue;
+                    if (seen[href]) continue;
+                    seen[href] = 1;
+                    out.push({t: t, u: href});
+                    if (out.length >= 2000) break;
+                }
+                return JSON.stringify(out);
+            })();
+        """
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -178,8 +210,11 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView, url: String) {
                 etAddress.setText(url)
-                if (grabbing) {
-                    // 分页抓取中：等页面渲染完再提取
+                if (bookGrabbing) {
+                    // 整本模式：章节页/分页加载完成后提取
+                    handler.postDelayed({ grabBookCurrentPage(url) }, 600)
+                } else if (grabbing) {
+                    // 单章模式：等页面渲染完再提取
                     handler.postDelayed({ extractCurrentPage(url) }, 600)
                 }
             }
@@ -225,6 +260,126 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btnPickDir).setOnClickListener {
             pickDirLauncher.launch(null)
         }
+
+        // 📚 一键整本（再次点击=停止）
+        findViewById<Button>(R.id.btnBook).setOnClickListener {
+            if (bookGrabbing) {
+                stopRequested = true
+                setStatus("⏹ 正在停止，完成当前章节后结束…")
+            } else {
+                startBookGrab()
+            }
+        }
+    }
+
+    // ================= 整本自动下载 =================
+
+    private fun startBookGrab() {
+        if (grabbing) {
+            toast("请先等待当前章节抓取完成")
+            return
+        }
+        val bookName = etBookName.text.toString().trim().ifEmpty { "小说" }
+        toast("📖 开始整本下载：$bookName（需停留在目录页）")
+
+        webView.evaluateJavascript(JS_BOOK_CHAPTERS) { result ->
+            runOnUiThread {
+                val list = ArrayList<Pair<String, String>>()
+                try {
+                    val arr = org.json.JSONArray(unquoteJson(result?.trim() ?: "[]"))
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        list.add(o.getString("t") to o.getString("u"))
+                    }
+                } catch (_: Exception) {}
+                if (list.isEmpty()) {
+                    toast("❌ 未在当前页面识别到章节列表，请先打开小说目录页再点「一键整本」")
+                    return@runOnUiThread
+                }
+                bookGrabbing = true
+                stopRequested = false
+                btnGrab.isEnabled = false
+                (findViewById<Button>(R.id.btnBook)).text = "⏹ 停止"
+                bookChapters.clear()
+                bookChapters.addAll(list)
+                setStatus("📚 识别到 ${list.size} 章，开始整本下载")
+                loadChapter(0)
+            }
+        }
+    }
+
+    private fun loadChapter(idx: Int) {
+        bookIdx = idx
+        val (title, url) = bookChapters[idx]
+        chapterPages.setLength(0)
+        chapterVisited.clear()
+        chapterVisited.add(url.substringBefore('#'))
+        setStatus("📚 整本进度 第 ${idx + 1}/${bookChapters.size} 章：$title")
+        webView.loadUrl(url)
+        scheduleBookTimeout(title, url)
+    }
+
+    /** 每次页面加载/翻页后的超时保护 */
+    private fun scheduleBookTimeout(title: String, url: String) {
+        handler.removeCallbacksAndMessages(null)
+        handler.postDelayed({
+            if (bookGrabbing) {
+                setStatus("⏱️ 加载超时，跳过：$title")
+                onBookChapterDone(title)
+            }
+        }, 10000)
+    }
+
+    private fun grabBookCurrentPage(url: String) {
+        webView.evaluateJavascript(JS_GRAB) { result ->
+            runOnUiThread {
+                var text = result?.trim() ?: ""
+                text = if (text == "\"\"" || text == "null") "" else unquoteJson(text)
+                if (text.isNotEmpty()) {
+                    chapterPages.append(text).append("\n\n")
+                }
+                // 章内自动翻页
+                webView.evaluateJavascript(JS_NEXT_PAGE) { r2 ->
+                    runOnUiThread {
+                        val next = (r2?.trim() ?: "").removeSurrounding("\"")
+                        val (_, curUrl) = bookChapters[bookIdx]
+                        if (next.isEmpty() || next.substringBefore('#') in chapterVisited) {
+                            onBookChapterDone(curUrl.substringAfterLast('/').ifEmpty { "章节" })
+                        } else {
+                            chapterVisited.add(next.substringBefore('#'))
+                            setStatus("📚 第 ${bookIdx + 1} 章翻页 ${chapterVisited.size - 1} …")
+                            webView.loadUrl(next)
+                            scheduleBookTimeout(bookChapters[bookIdx].first, next)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun onBookChapterDone(title: String) {
+        val raw = chapterPages.toString().trim()
+        if (raw.isNotEmpty()) {
+            val content = clean(raw, title)
+            appendToTxt(content)
+        } else {
+            setStatus("⚠️ 空章节，跳过：$title")
+        }
+        if (stopRequested || bookIdx >= bookChapters.size - 1) {
+            val done = if (stopRequested) bookIdx + 1 else bookChapters.size
+            finishBook(done)
+        } else {
+            handler.postDelayed({ loadChapter(bookIdx + 1) }, 800)
+        }
+    }
+
+    private fun finishBook(doneCount: Int) {
+        bookGrabbing = false
+        stopRequested = false
+        btnGrab.isEnabled = true
+        (findViewById<Button>(R.id.btnBook)).text = "📚 一键整本"
+        setStatus("🎉 整本下载完成：$doneCount/${bookChapters.size} 章已保存")
+        toast("整本下载完成！共 $doneCount 章")
     }
 
     // ================= 收藏夹 =================
@@ -411,6 +566,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun appendToTxt(content: String) {
         val name = (etBookName.text.toString().trim().ifEmpty { "小说" }) + ".txt"
+        if (name != bookUriName) { bookUri = null; bookUriName = name } // 换书名后不写入旧文件
         try {
             // 优先使用用户自选目录（SAF）
             val picked = fileInPickedDir(name)

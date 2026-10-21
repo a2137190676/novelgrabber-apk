@@ -5,7 +5,7 @@
     android:background="@drawable/bg_gradient"
     android:orientation="vertical">
 
-    <!-- ===== 顶部工具栏 ===== -->
+    <!-- ===== 顶部玻璃工具栏 ===== -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -26,7 +26,7 @@
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="后退"
                 android:src="@android:drawable/ic_media_previous"
-                android:tint="#FFFFFF" />
+                android:tint="#2B4C8C" />
 
             <ImageButton
                 android:id="@+id/btnForward"
@@ -36,7 +36,7 @@
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="前进"
                 android:src="@android:drawable/ic_media_next"
-                android:tint="#FFFFFF" />
+                android:tint="#2B4C8C" />
 
             <EditText
                 android:id="@+id/etAddress"
@@ -50,8 +50,8 @@
                 android:inputType="textUri"
                 android:paddingHorizontal="12dp"
                 android:singleLine="true"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#66FFFFFF"
+                android:textColor="#1A2B4C"
+                android:textColorHint="#801A2B4C"
                 android:textSize="13sp" />
 
             <ImageButton
@@ -61,7 +61,7 @@
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="前往"
                 android:src="@android:drawable/ic_menu_send"
-                android:tint="#FFFFFF" />
+                android:tint="#2B4C8C" />
 
             <ImageButton
                 android:id="@+id/btnStar"
@@ -71,7 +71,7 @@
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="收藏当前页"
                 android:src="@android:drawable/btn_star_big_off"
-                android:tint="#FFD54F" />
+                android:tint="#F5A623" />
         </LinearLayout>
 
         <LinearLayout
@@ -89,13 +89,13 @@
                 android:background="@drawable/edittext_dark"
                 android:drawableStart="@android:drawable/ic_menu_edit"
                 android:drawablePadding="8dp"
-                android:drawableTint="#8899BB"
+                android:drawableTint="#7A8FB5"
                 android:hint="📖 书名（作为 TXT 文件名）"
                 android:inputType="text"
                 android:paddingHorizontal="12dp"
                 android:singleLine="true"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#66FFFFFF"
+                android:textColor="#1A2B4C"
+                android:textColorHint="#801A2B4C"
                 android:textSize="13sp" />
 
             <ImageButton
@@ -106,7 +106,7 @@
                 android:background="@drawable/btn_secondary"
                 android:contentDescription="选择 TXT 保存文件夹"
                 android:src="@android:drawable/ic_menu_upload"
-                android:tint="#FFFFFF" />
+                android:tint="#2B4C8C" />
         </LinearLayout>
     </LinearLayout>
 
@@ -115,11 +115,11 @@
         android:id="@+id/tvStatus"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#331B2A4A"
+        android:background="#4DFFFFFF"
         android:gravity="center"
         android:padding="6dp"
         android:text="就绪"
-        android:textColor="#9FB3D9"
+        android:textColor="#2B4C8C"
         android:textSize="12sp"
         android:visibility="gone" />
 
@@ -144,44 +144,68 @@
             android:progressTint="#3D5AFE" />
     </FrameLayout>
 
-    <!-- ===== 底部操作栏 ===== -->
+    <!-- ===== 底部玻璃操作栏 ===== -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/bottombar_bg"
-        android:gravity="center"
-        android:orientation="horizontal"
-        android:padding="12dp">
+        android:orientation="vertical"
+        android:padding="10dp">
 
-        <Button
-            android:id="@+id/btnGrab"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="2"
-            android:background="@drawable/btn_primary"
-            android:text="⚡ 一键抓取整章"
-            android:textColor="#FFFFFF"
-            android:textSize="15sp"
-            android:textStyle="bold" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
 
-        <ImageButton
-            android:id="@+id/btnBookmarks"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="10dp"
-            android:background="@drawable/btn_secondary"
-            android:contentDescription="收藏夹"
-            android:src="@android:drawable/ic_menu_myplaces"
-            android:tint="#FFD54F" />
+            <Button
+                android:id="@+id/btnGrab"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_weight="1"
+                android:background="@drawable/btn_primary"
+                android:text="⚡ 抓取整章"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
-        <ImageButton
-            android:id="@+id/btnFinish"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="10dp"
-            android:background="@drawable/btn_secondary"
-            android:contentDescription="打开 TXT"
-            android:src="@android:drawable/ic_menu_save"
-            android:tint="#FFFFFF" />
+            <Button
+                android:id="@+id/btnBook"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:background="@drawable/btn_primary"
+                android:text="📚 一键整本"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/btnBookmarks"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:background="@drawable/btn_secondary"
+                android:contentDescription="收藏夹"
+                android:src="@android:drawable/ic_menu_myplaces"
+                android:tint="#F5A623" />
+
+            <ImageButton
+                android:id="@+id/btnFinish"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:layout_marginStart="12dp"
+                android:background="@drawable/btn_secondary"
+                android:contentDescription="打开 TXT"
+                android:src="@android:drawable/ic_menu_save"
+                android:tint="#2B4C8C" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>
