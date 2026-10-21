@@ -2,6 +2,7 @@ package com.example.novelgrabber
 
 import android.annotation.SuppressLint
 import android.app.AlertDialog
+import android.app.DownloadManager
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
@@ -10,6 +11,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.view.KeyEvent
 import android.view.View
@@ -52,10 +54,12 @@ class MainActivity : AppCompatActivity() {
     /** 整本下载状态 */
     private var bookGrabbing = false
     private var bookUriName = ""
+    private var paused = false
     private var stopRequested = false
     private val bookChapters = ArrayList<Pair<String, String>>()
     private var bookIdx = 0
     private val chapterPages = StringBuilder()
+    private val chapterPageList = ArrayList<String>()
     private val chapterVisited = HashSet<String>()
 
     private val pickDirLauncher = registerForActivityResult(
@@ -78,6 +82,7 @@ class MainActivity : AppCompatActivity() {
     /** 分页抓取状态机 */
     private var grabbing = false
     private val pageTexts = StringBuilder()
+    private val pageList = ArrayList<String>()
     private val visitedUrls = HashSet<String>()
     private var pageTitle = ""
 
@@ -261,6 +266,23 @@ class MainActivity : AppCompatActivity() {
             pickDirLauncher.launch(null)
         }
 
+        // 📂 打开下载目录
+        findViewById<ImageButton>(R.id.btnOpenDir).setOnClickListener { openDownloadDir() }
+
+        // ⏸/▶ 暂停 / 继续
+        findViewById<ImageButton>(R.id.btnPause).setOnClickListener { togglePause() }
+
+        // ⏹ 停止
+        findViewById<ImageButton>(R.id.btnStop).setOnClickListener {
+            if (bookGrabbing || grabbing) {
+                stopRequested = true
+                paused = false
+                setStatus("⏹ 已请求停止，完成当前页面后结束…")
+            } else {
+                toast("当前没有进行中的下载")
+            }
+        }
+
         // 📚 一键整本（再次点击=停止）
         findViewById<Button>(R.id.btnBook).setOnClickListener {
             if (bookGrabbing) {
@@ -312,6 +334,7 @@ class MainActivity : AppCompatActivity() {
         bookIdx = idx
         val (title, url) = bookChapters[idx]
         chapterPages.setLength(0)
+        chapterPageList.clear()
         chapterVisited.clear()
         chapterVisited.add(url.substringBefore('#'))
         setStatus("📚 整本进度 第 ${idx + 1}/${bookChapters.size} 章：$title")
@@ -336,20 +359,22 @@ class MainActivity : AppCompatActivity() {
                 var text = result?.trim() ?: ""
                 text = if (text == "\"\"" || text == "null") "" else unquoteJson(text)
                 if (text.isNotEmpty()) {
-                    chapterPages.append(text).append("\n\n")
+                    chapterPageList.add(text)
                 }
                 // 章内自动翻页
                 webView.evaluateJavascript(JS_NEXT_PAGE) { r2 ->
                     runOnUiThread {
-                        val next = (r2?.trim() ?: "").removeSurrounding("\"")
-                        val (_, curUrl) = bookChapters[bookIdx]
-                        if (next.isEmpty() || next.substringBefore('#') in chapterVisited) {
-                            onBookChapterDone(curUrl.substringAfterLast('/').ifEmpty { "章节" })
-                        } else {
-                            chapterVisited.add(next.substringBefore('#'))
-                            setStatus("📚 第 ${bookIdx + 1} 章翻页 ${chapterVisited.size - 1} …")
-                            webView.loadUrl(next)
-                            scheduleBookTimeout(bookChapters[bookIdx].first, next)
+                        resumeAware {
+                            val next = (r2?.trim() ?: "").removeSurrounding("\"")
+                            val (chTitle, curUrl) = bookChapters[bookIdx]
+                            if (stopRequested || next.isEmpty() || next.substringBefore('#') in chapterVisited) {
+                                onBookChapterDone(chTitle)
+                            } else {
+                                chapterVisited.add(next.substringBefore('#'))
+                                setStatus("📚 第 ${bookIdx + 1} 章翻页 ${chapterVisited.size - 1} …")
+                                webView.loadUrl(next)
+                                scheduleBookTimeout(chTitle, next)
+                            }
                         }
                     }
                 }
@@ -358,10 +383,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onBookChapterDone(title: String) {
-        val raw = chapterPages.toString().trim()
-        if (raw.isNotEmpty()) {
-            val content = clean(raw, title)
-            appendToTxt(content)
+        if (chapterPageList.isNotEmpty()) {
+            val raw = if (chapterPageList.size > 1) {
+                // 分页章节：每节写入详细小标题
+                chapterPageList.mapIndexed { i, p -> "──── $title · 第 ${i + 1} 节 ────\n\n$p" }
+                    .joinToString("\n\n")
+            } else chapterPageList[0]
+            appendToTxt(clean(raw, title))
         } else {
             setStatus("⚠️ 空章节，跳过：$title")
         }
@@ -369,13 +397,15 @@ class MainActivity : AppCompatActivity() {
             val done = if (stopRequested) bookIdx + 1 else bookChapters.size
             finishBook(done)
         } else {
-            handler.postDelayed({ loadChapter(bookIdx + 1) }, 800)
+            handler.postDelayed({ resumeAware { loadChapter(bookIdx + 1) } }, 800)
         }
     }
 
     private fun finishBook(doneCount: Int) {
         bookGrabbing = false
         stopRequested = false
+        paused = false
+        (findViewById<ImageButton>(R.id.btnPause)).setImageResource(android.R.drawable.ic_media_pause)
         btnGrab.isEnabled = true
         (findViewById<Button>(R.id.btnBook)).text = "📚 一键整本"
         setStatus("🎉 整本下载完成：$doneCount/${bookChapters.size} 章已保存")
@@ -462,6 +492,7 @@ class MainActivity : AppCompatActivity() {
 
         grabbing = true
         pageTexts.setLength(0)
+        pageList.clear()
         visitedUrls.clear()
         pageTitle = webView.title ?: "未命名章节"
         visitedUrls.add(currentUrl())
@@ -488,10 +519,12 @@ class MainActivity : AppCompatActivity() {
                 var text = result?.trim() ?: ""
                 text = if (text == "\"\"" || text == "null") "" else unquoteJson(text)
                 if (text.isNotEmpty()) {
-                    pageTexts.append(text).append("\n\n")
+                    pageList.add(text)
+                    pageTexts.setLength(0)
+                    pageTexts.append(pageList.joinToString("\n\n"))
                     setStatus("📄 已抓取第 ${visitedUrls.size} 页，正在检查下一页…")
                 }
-                findNextPage()
+                resumeAware { findNextPage() }
             }
         }
     }
@@ -499,25 +532,27 @@ class MainActivity : AppCompatActivity() {
     private fun findNextPage() {
         webView.evaluateJavascript(JS_NEXT_PAGE) { result ->
             runOnUiThread {
-                val next = (result?.trim() ?: "").removeSurrounding("\"")
-                if (next.isEmpty()) {
-                    finalizeChapter()
-                } else {
-                    val key = next.substringBefore('#')
-                    if (key in visitedUrls) {
+                resumeAware {
+                    val next = (result?.trim() ?: "").removeSurrounding("\"")
+                    if (stopRequested || next.isEmpty()) {
                         finalizeChapter()
                     } else {
-                        visitedUrls.add(key)
-                        setStatus("➡️ 自动翻页 ${visitedUrls.size - 1} …")
-                        webView.loadUrl(next)
-                        // 重置超时保护
-                        handler.removeCallbacksAndMessages(null)
-                        handler.postDelayed({
-                            if (grabbing) {
-                                setStatus("⏱️ 翻页超时，按已抓取内容收尾")
-                                finalizeChapter()
-                            }
-                        }, PAGE_LOAD_TIMEOUT_MS)
+                        val key = next.substringBefore('#')
+                        if (key in visitedUrls) {
+                            finalizeChapter()
+                        } else {
+                            visitedUrls.add(key)
+                            setStatus("➡️ 自动翻页 ${visitedUrls.size - 1} …")
+                            webView.loadUrl(next)
+                            // 重置超时保护
+                            handler.removeCallbacksAndMessages(null)
+                            handler.postDelayed({
+                                if (grabbing) {
+                                    setStatus("⏱️ 翻页超时，按已抓取内容收尾")
+                                    finalizeChapter()
+                                }
+                            }, PAGE_LOAD_TIMEOUT_MS)
+                        }
                     }
                 }
             }
@@ -528,20 +563,69 @@ class MainActivity : AppCompatActivity() {
     private fun finalizeChapter() {
         if (!grabbing) return
         grabbing = false
+        stopRequested = false
         handler.removeCallbacksAndMessages(null)
         btnGrab.isEnabled = true
 
-        val raw = pageTexts.toString().trim()
-        if (raw.isEmpty()) {
+        if (pageList.isEmpty()) {
             setStatus("❌ 未识别到正文，本站结构不兼容")
             toast("未识别到正文，请尝试其他章节或书源")
             return
         }
+        // 分页章节：每节写入详细小标题
+        val raw = if (pageList.size > 1) {
+            pageList.mapIndexed { i, p -> "──── $pageTitle · 第 ${i + 1} 节 ────\n\n$p" }
+                .joinToString("\n\n")
+        } else pageList[0]
         val pages = visitedUrls.size - 1
         val content = clean(raw, pageTitle)
         setStatus("💾 正在保存…（共 ${pages + 1} 页）")
         appendToTxt(content)
         setStatus("✅ 整章抓取完成：$pageTitle（${pages + 1} 页）")
+    }
+
+    // ================= 暂停 / 停止 / 目录 =================
+
+    /** 暂停时挂起后续步骤，继续后恢复 */
+    private fun resumeAware(cont: () -> Unit) {
+        if (!paused || !(grabbing || bookGrabbing)) {
+            cont()
+            return
+        }
+        handler.postDelayed({ resumeAware(cont) }, 400)
+    }
+
+    private fun togglePause() {
+        val btn = findViewById<ImageButton>(R.id.btnPause)
+        if (!(grabbing || bookGrabbing)) {
+            toast("当前没有进行中的下载")
+            return
+        }
+        paused = !paused
+        if (paused) {
+            btn.setImageResource(android.R.drawable.ic_media_play)
+            setStatus("⏸ 已暂停，点 ▶ 继续")
+        } else {
+            btn.setImageResource(android.R.drawable.ic_media_pause)
+            setStatus("▶ 已继续下载")
+        }
+    }
+
+    /** 打开下载目录：自选文件夹 → 文件管理器浏览；否则打开系统下载管理 */
+    private fun openDownloadDir() {
+        try {
+            val dir = saveDirUri
+            if (dir != null) {
+                startActivity(Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(dir, DocumentsContract.Document.MIME_TYPE_DIR)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                })
+            } else {
+                startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+            }
+        } catch (e: Exception) {
+            toast("无法打开目录：${e.message}")
+        }
     }
 
     // ================= 清洗与保存 =================
