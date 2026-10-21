@@ -1,7 +1,9 @@
 package com.example.novelgrabber
 
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.Intent
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -17,13 +19,17 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.ListView
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.documentfile.provider.DocumentFile
 import java.io.OutputStream
 
 class MainActivity : AppCompatActivity() {
@@ -34,9 +40,31 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var btnGrab: Button
+    private lateinit var prefs: SharedPreferences
 
     private val handler = Handler(Looper.getMainLooper())
     private var bookUri: Uri? = null
+    private var saveDirUri: Uri? = null
+
+    /** 书签数据：list of "title|url" */
+    private val bookmarks = ArrayList<Pair<String, String>>()
+
+    private val pickDirLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+            saveDirUri = uri
+            prefs.edit().putString("save_dir", uri.toString()).apply()
+            val name = DocumentFile.fromTreeUri(this, uri)?.name ?: uri.lastPathSegment ?: "所选文件夹"
+            toast("✅ TXT 将保存到：$name")
+        }
+    }
 
     /** 分页抓取状态机 */
     private var grabbing = false
@@ -110,6 +138,16 @@ class MainActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
         progressBar = findViewById(R.id.progressBar)
         btnGrab = findViewById(R.id.btnGrab)
+        prefs = getSharedPreferences("novelgrabber", MODE_PRIVATE)
+
+        // 恢复上次选择的保存目录
+        prefs.getString("save_dir", null)?.let {
+            try {
+                saveDirUri = Uri.parse(it)
+            } catch (_: Exception) {}
+        }
+        // 恢复书签
+        loadBookmarks()
 
         setupWebView()
         setupButtons()
@@ -166,6 +204,90 @@ class MainActivity : AppCompatActivity() {
         }
         btnGrab.setOnClickListener { startGrab() }
         findViewById<ImageButton>(R.id.btnFinish).setOnClickListener { openTxt() }
+
+        // ★ 收藏当前页面
+        findViewById<ImageButton>(R.id.btnStar).setOnClickListener {
+            val url = webView.url ?: return@setOnClickListener
+            val title = (webView.title ?: url).take(40)
+            if (bookmarks.any { it.second == url }) {
+                toast("该页面已在收藏夹中")
+            } else {
+                bookmarks.add(0, title to url)
+                saveBookmarks()
+                toast("⭐ 已收藏：$title")
+            }
+        }
+
+        // 📂 打开收藏夹
+        findViewById<ImageButton>(R.id.btnBookmarks).setOnClickListener { showBookmarks() }
+
+        // 📁 选择 TXT 保存文件夹
+        findViewById<ImageButton>(R.id.btnPickDir).setOnClickListener {
+            pickDirLauncher.launch(null)
+        }
+    }
+
+    // ================= 收藏夹 =================
+
+    private fun loadBookmarks() {
+        bookmarks.clear()
+        val json = prefs.getString("bookmarks", "[]") ?: "[]"
+        try {
+            val arr = org.json.JSONArray(json)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                bookmarks.add(o.getString("t") to o.getString("u"))
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun saveBookmarks() {
+        val arr = org.json.JSONArray()
+        for ((t, u) in bookmarks) arr.put(org.json.JSONObject().put("t", t).put("u", u))
+        prefs.edit().putString("bookmarks", arr.toString()).apply()
+    }
+
+    private fun showBookmarks() {
+        if (bookmarks.isEmpty()) {
+            toast("收藏夹为空：浏览页面后点右上角 ★ 收藏")
+            return
+        }
+        val titles = bookmarks.mapIndexed { i, (t, u) -> "⭐ $t\n     ${u.take(60)}" }.toTypedArray()
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("📂 收藏夹（点按打开，长按删除）")
+            .setItems(titles) { _, which ->
+                val (t, u) = bookmarks[which]
+                etAddress.setText(u)
+                webView.loadUrl(u)
+                toast("打开：$t")
+            }
+            .setPositiveButton("关闭", null)
+            .create()
+        dialog.listView.setOnItemLongClickListener { _, _, which, _ ->
+            val removed = bookmarks.removeAt(which)
+            saveBookmarks()
+            dialog.dismiss()
+            AlertDialog.Builder(this)
+                .setMessage("已删除收藏：${removed.first}\n重新打开收藏夹查看。")
+                .setPositiveButton("好", null).show()
+            true
+        }
+        dialog.show()
+    }
+
+    // ================= 保存路径 =================
+
+    /** 在所选目录中查找或创建 TXT 文件，返回其 Uri；未选目录返回 null */
+    private fun fileInPickedDir(name: String): Pair<Uri, Boolean>? {
+        val tree = saveDirUri ?: return null
+        val dir = DocumentFile.fromTreeUri(this, tree) ?: return null
+        val existing = dir.findFile(name)
+        return if (existing != null && existing.canWrite()) {
+            existing.uri to true
+        } else {
+            val created = dir.createFile("text/plain", name) ?: return null
+            created.uri to false
+        }
     }
 
     private fun go() {
@@ -290,11 +412,20 @@ class MainActivity : AppCompatActivity() {
     private fun appendToTxt(content: String) {
         val name = (etBookName.text.toString().trim().ifEmpty { "小说" }) + ".txt"
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // 优先使用用户自选目录（SAF）
+            val picked = fileInPickedDir(name)
+            if (picked != null) {
+                val (uri, existed) = picked
+                if (existed) {
+                    contentResolver.openOutputStream(uri, "wa")?.use { write(it, content) }
+                } else {
+                    contentResolver.openOutputStream(uri)?.use { write(it, content) }
+                }
+                bookUri = uri
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val resolver = contentResolver
                 var uri = bookUri
                 if (uri == null) {
-                    // 若文件已存在（上次运行创建过），复用它以继续追加
                     uri = findExisting(name)
                     if (uri == null) {
                         val values = android.content.ContentValues().apply {
@@ -315,7 +446,8 @@ class MainActivity : AppCompatActivity() {
                 bookUri = Uri.fromFile(f)
                 java.io.FileOutputStream(f, true).use { write(it, content) }
             }
-            toast("✅ 已追加到 Downloads/$name")
+            val where = if (saveDirUri != null) "所选文件夹" else "Downloads"
+            toast("✅ 已追加到 $where/$name")
         } catch (e: Exception) {
             setStatus("❌ 写入失败：${e.message}")
         }
@@ -344,10 +476,16 @@ class MainActivity : AppCompatActivity() {
     private fun openTxt() {
         val name = (etBookName.text.toString().trim().ifEmpty { "小说" }) + ".txt"
         try {
-            val uri: Uri = findExisting(name)
-                ?: if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                    bookUri ?: throw Exception("尚未抓取任何内容")
-                } else throw Exception("尚未抓取任何内容")
+            val uri: Uri
+            val picked = fileInPickedDir(name)
+            if (picked != null) {
+                uri = picked.first
+            } else {
+                uri = findExisting(name)
+                    ?: if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                        bookUri ?: throw Exception("尚未抓取任何内容")
+                    } else throw Exception("尚未抓取任何内容")
+            }
             startActivity(Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "text/plain")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

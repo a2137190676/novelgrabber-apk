@@ -62,24 +62,52 @@
                 android:contentDescription="前往"
                 android:src="@android:drawable/ic_menu_send"
                 android:tint="#FFFFFF" />
+
+            <ImageButton
+                android:id="@+id/btnStar"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/btn_secondary"
+                android:contentDescription="收藏当前页"
+                android:src="@android:drawable/btn_star_big_off"
+                android:tint="#FFD54F" />
         </LinearLayout>
 
-        <EditText
-            android:id="@+id/etBookName"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:background="@drawable/edittext_dark"
-            android:drawableStart="@android:drawable/ic_menu_edit"
-            android:drawablePadding="8dp"
-            android:drawableTint="#8899BB"
-            android:hint="📖 书名（作为 TXT 文件名）"
-            android:inputType="text"
-            android:paddingHorizontal="12dp"
-            android:singleLine="true"
-            android:textColor="#FFFFFF"
-            android:textColorHint="#66FFFFFF"
-            android:textSize="13sp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etBookName"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:background="@drawable/edittext_dark"
+                android:drawableStart="@android:drawable/ic_menu_edit"
+                android:drawablePadding="8dp"
+                android:drawableTint="#8899BB"
+                android:hint="📖 书名（作为 TXT 文件名）"
+                android:inputType="text"
+                android:paddingHorizontal="12dp"
+                android:singleLine="true"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#66FFFFFF"
+                android:textSize="13sp" />
+
+            <ImageButton
+                android:id="@+id/btnPickDir"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/btn_secondary"
+                android:contentDescription="选择 TXT 保存文件夹"
+                android:src="@android:drawable/ic_menu_upload"
+                android:tint="#FFFFFF" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- 抓取状态提示 -->
@@ -135,6 +163,16 @@
             android:textColor="#FFFFFF"
             android:textSize="15sp"
             android:textStyle="bold" />
+
+        <ImageButton
+            android:id="@+id/btnBookmarks"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/btn_secondary"
+            android:contentDescription="收藏夹"
+            android:src="@android:drawable/ic_menu_myplaces"
+            android:tint="#FFD54F" />
 
         <ImageButton
             android:id="@+id/btnFinish"
