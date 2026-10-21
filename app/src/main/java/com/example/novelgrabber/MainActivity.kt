@@ -88,7 +88,7 @@ class MainActivity : AppCompatActivity() {
     private var pageTitle = ""
 
     companion object {
-        private const val PAGE_LOAD_TIMEOUT_MS = 8000L
+        private const val PAGE_LOAD_TIMEOUT_MS = 15000L
 
         /** 提取当前页正文 */
         private const val JS_GRAB = """
@@ -158,7 +158,7 @@ class MainActivity : AppCompatActivity() {
                     if (seen[href]) continue;
                     seen[href] = 1;
                     out.push({t: t, u: href});
-                    if (out.length >= 2000) break;
+                    if (out.length >= 9999) break;
                 }
                 return JSON.stringify(out);
             })();
@@ -355,7 +355,7 @@ class MainActivity : AppCompatActivity() {
                 setStatus("⏱️ 加载超时，跳过：$title")
                 onBookChapterDone(title)
             }
-        }, 10000)
+        }, 15000)
     }
 
     private fun grabBookCurrentPage(url: String) {
