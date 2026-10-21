@@ -108,7 +108,7 @@ public class MainForm : Form
 
     public MainForm()
     {
-        Text = "小说爬取 v2.7";
+        Text = "小说爬取 v2.8";
         Size = new Size(1100, 780);
         StartPosition = FormStartPosition.CenterScreen;
 
@@ -568,9 +568,11 @@ public class MainForm : Form
 
     private void ApplyTheme()
     {
-        Color bg = dark ? Color.FromArgb(22, 33, 62) : Color.FromArgb(220, 232, 255);
-        Color fg = dark ? Color.FromArgb(230, 238, 255) : Color.FromArgb(26, 43, 76);
-        Color btnBg = dark ? Color.FromArgb(40, 54, 90) : Color.White;
+        // 简约风：浅色=灰白底白卡片；深色=石墨黑深灰卡片
+        Color bg = dark ? Color.FromArgb(17, 24, 39) : Color.FromArgb(242, 244, 247);
+        Color card = dark ? Color.FromArgb(31, 41, 55) : Color.White;
+        Color fg = dark ? Color.FromArgb(249, 250, 251) : Color.FromArgb(17, 24, 39);
+        Color border = dark ? Color.FromArgb(55, 65, 81) : Color.FromArgb(229, 231, 235);
         BackColor = bg; ForeColor = fg;
         foreach (var c in new Control[] { btnBack, btnForward, btnGo, btnStar, btnPickDir, btnGrab, btnBook,
             btnBookmarks, btnOpenDir, btnPause, btnTheme, btnLog, btnFinish })
@@ -578,17 +580,23 @@ public class MainForm : Form
             if (c is Button b)
             {
                 b.FlatStyle = FlatStyle.Flat;
-                b.FlatAppearance.BorderColor = dark ? Color.FromArgb(70, 120, 180) : Color.FromArgb(180, 200, 240);
+                b.FlatAppearance.BorderColor = border;
+                if (b == btnGrab || b == btnBook)
+                {
+                    b.BackColor = dark ? Color.FromArgb(59, 130, 246) : Color.FromArgb(37, 99, 235);
+                    b.ForeColor = Color.White;
+                    continue;
+                }
             }
-            c.BackColor = btnBg; c.ForeColor = fg;
+            c.BackColor = card; c.ForeColor = fg;
         }
-        txtAddress.BackColor = btnBg; txtAddress.ForeColor = fg;
-        txtBookName.BackColor = btnBg; txtBookName.ForeColor = fg;
+        txtAddress.BackColor = card; txtAddress.ForeColor = fg;
+        txtBookName.BackColor = card; txtBookName.ForeColor = fg;
         webView.DefaultBackgroundColor = bg;
         btnTheme.Text = dark ? "☀️ 主题" : "🌙 主题";
     }
 
-    private void Status(string s) { Text = "小说爬取 v2.7 — " + s; }
+    private void Status(string s) { Text = "小说爬取 v2.8 — " + s; }
 
     // ================= 配置 =================
     private static class Cfg
