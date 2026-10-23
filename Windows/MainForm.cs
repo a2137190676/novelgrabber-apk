@@ -6,12 +6,13 @@ using System.Data;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Web;
 
 namespace NovelGrabberWin;
 
@@ -24,9 +25,12 @@ public class MainForm : Form
     private Button btnGrab = null!, btnBook = null!, btnBookmarks = null!, btnOpenDir = null!;
     private Button btnPause = null!, btnTheme = null!, btnFinish = null!, btnLog = null!, btnPickDir = null!;
     private System.Windows.Forms.Timer uiTimer = null!;
+    private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
 
-    private bool grabbing;          // 单章模式
-    private bool bookGrabbing;      // 整本模式
+    private bool webReady;          // WebView2 是否可用
+    private string pendingNav = "";
+    private bool grabbing;
+    private bool bookGrabbing;
     private bool stopRequested;
     private bool paused;
     private bool dark;
@@ -35,21 +39,23 @@ public class MainForm : Form
     private readonly List<string> pageList = new();          // 单章模式各节
     private readonly HashSet<string> visitedUrls = new();
 
-    private readonly List<(string title, string url)> bookChapters = new();
+    private readonly List<KeyValuePair<string, string>> bookChapters = new();
     private int bookIdx;
     private readonly List<string> chapterPageList = new();   // 整本模式当前章各节
     private readonly HashSet<string> chapterVisited = new();
-    private DateTime chapterStart;
 
-    private readonly List<(string title, string url)> bookmarks = new();
+    private readonly List<KeyValuePair<string, string>> bookmarks = new();
     private readonly List<string> logs = new();
     private string saveDir = "";
-    private string bookUriName = "";
 
-    private static readonly string CfgPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NovelGrabber", "config.json");
+    private static readonly string CfgDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NovelGrabber");
+    private static readonly string CfgPath = Path.Combine(CfgDir, "config.json");
+    private static Dictionary<string, string> cfg = new();
 
-    // JS：提取正文（与安卓版一致）
+    private const double TimeoutSec = 60000;
+    private DateTime lastAction = DateTime.Now;
+
     private const string JsGrab = """
         (function() {
             var selectors = ['#content','#chaptercontent','#BookText','#htmlContent','#txtContent',
@@ -65,7 +71,6 @@ public class MainForm : Form
         })();
         """;
 
-    // JS：查找章内“下一页”
     private const string JsNextPage = """
         (function() {
             var links = document.querySelectorAll('a');
@@ -85,7 +90,6 @@ public class MainForm : Form
         })();
         """;
 
-    // JS：目录页解析章节列表
     private const string JsBookChapters = """
         (function() {
             var seen = {}, out = [];
@@ -105,16 +109,21 @@ public class MainForm : Form
 
     private static readonly Regex AdLine = new("广告|章节错误|最新章节|请记住本书|首发域名|app阅读|点击下一页|继续阅读",
         RegexOptions.Compiled);
+    private static readonly Regex RxNextHref = new(
+        "<a[^>]*href=\"([^\"]+)\"[^>]*>\\s*(下一页|下页|next)\\s*</a>|<a[^>]*>\\s*(下一页|下页|next)\\s*</a[^>]*>\\s*|<a[^>]*href=\"([^\"]+)\"[^>]*title=\"下一页\"",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex RxChapter = new(
+        "<a[^>]*href=\\\"([^\\\"]+)\\\"[^>]*>\\s*([^<]{2,60})\\s*</a>", RegexOptions.Compiled);
 
     public MainForm()
     {
-        Text = "小说爬取 v2.8";
+        Text = "小说爬取 v3.0";
         Size = new Size(1100, 780);
         StartPosition = FormStartPosition.CenterScreen;
 
         LoadConfig();
-        dark = Cfg.GetBool("night");
-        uiTimer = new System.Windows.Forms.Timer { Interval = 500 };
+        dark = GetCfg("night") == "1";
+        uiTimer = new System.Windows.Forms.Timer { Interval = 1000 };
         uiTimer.Tick += (s, e) => TimeoutWatch();
         uiTimer.Start();
 
@@ -123,6 +132,7 @@ public class MainForm : Form
         InitWebView();
     }
 
+    // ================= UI =================
     private void InitUi()
     {
         var top = new FlowLayoutPanel
@@ -130,14 +140,16 @@ public class MainForm : Form
             Dock = DockStyle.Top, Height = 96, FlowDirection = FlowDirection.LeftToRight,
             Padding = new Padding(8), WrapContents = false
         };
-        btnBack = MkBtn("◀", 36); btnForward = MkBtn("▶", 36); btnGo = MkBtn("前往", 60);
-        btnStar = MkBtn("★ 收藏", 64);
-        txtAddress = new TextBox { Width = 430, Anchor = AnchorStyles.Left };
+        btnBack = MkBtn("◀", 36); btnBack.Click += (s, e) => { try { if (webReady && webView.CanGoBack) webView.GoBack(); } catch { } };
+        btnForward = MkBtn("▶", 36); btnForward.Click += (s, e) => { try { if (webReady && webView.CanGoForward) webView.GoForward(); } catch { } };
+        txtAddress = new TextBox { Width = 420 };
+        txtAddress.PlaceholderText = "输入小说网址";
         txtAddress.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { Go(); e.SuppressKeyPress = true; } };
-        txtBookName = new TextBox { Width = 180 };
-        txtBookName.PlaceholderText = "📖 书名（TXT 文件名）";
-        btnPickDir = MkBtn("📁 目录", 64);
-        btnPickDir.Click += (s, e) => PickDir();
+        btnGo = MkBtn("前往", 60); btnGo.Click += (s, e) => Go();
+        btnStar = MkBtn("★ 收藏", 70); btnStar.Click += (s, e) => BookmarkCurrent();
+        txtBookName = new TextBox { Width = 170 };
+        txtBookName.PlaceholderText = "书名（TXT 文件名）";
+        btnPickDir = MkBtn("📁 目录", 70); btnPickDir.Click += (s, e) => PickDir();
         top.Controls.AddRange(new Control[] { btnBack, btnForward, txtAddress, btnGo, btnStar, txtBookName, btnPickDir });
 
         var bottom = new FlowLayoutPanel
@@ -145,8 +157,8 @@ public class MainForm : Form
             Dock = DockStyle.Bottom, Height = 96, FlowDirection = FlowDirection.LeftToRight,
             Padding = new Padding(8), WrapContents = false
         };
-        btnGrab = MkBtn("⚡ 抓取整章", 110); btnGrab.Click += (s, e) => StartGrab();
-        btnBook = MkBtn("📚 一键整本", 110); btnBook.Click += (s, e) => BookButton();
+        btnGrab = MkBtn("⚡ 抓取整章", 110); btnGrab.Click += (s, e) => _ = StartGrab();
+        btnBook = MkBtn("📚 一键整本", 110); btnBook.Click += (s, e) => _ = BookButton();
         btnBookmarks = MkBtn("📂 收藏夹", 88); btnBookmarks.Click += (s, e) => ShowBookmarks();
         btnOpenDir = MkBtn("📁 小说夹", 88); btnOpenDir.Click += (s, e) => OpenNovelDir();
         btnPause = MkBtn("⏸ 暂停", 76); btnPause.Click += (s, e) => TogglePause();
@@ -156,19 +168,39 @@ public class MainForm : Form
         bottom.Controls.AddRange(new Control[]
             { btnGrab, btnBook, btnBookmarks, btnOpenDir, btnPause, btnTheme, btnLog, btnFinish });
 
-        webView = new WebView2 { Dock = DockStyle.Fill };
-        webView.NavigationCompleted += WebView_NavigationCompleted;
+        webView = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.White };
         var placeholder = new Label
         {
             Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter,
-            Text = "WebView2 初始化中…（若长期停留请安装 WebView2 Runtime）"
+            Text = "正在初始化内置浏览器（WebView2）…\r\n如长时间停留在此处，将自动启用内置 HTTP 抓取模式（无需浏览器内核）"
         };
         webView.CoreWebView2InitializationCompleted += (s, e) =>
         {
             placeholder.Visible = false;
-            if (webView.CoreWebView2 != null)
-                webView.CoreWebView2.Settings.UserAgent =
-                    webView.CoreWebView2.Settings.UserAgent.Replace("; wv", "");
+            try
+            {
+                if (webView.CoreWebView2 != null)
+                {
+                    webView.CoreWebView2.Settings.UserAgent =
+                        webView.CoreWebView2.Settings.UserAgent.Replace("; wv", "");
+                    webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                    webView.CoreWebView2.Profile.PreferredColorScheme =
+                        dark ? CoreWebView2PreferredColorScheme.Dark : CoreWebView2PreferredColorScheme.Light;
+                    // 站内新窗口一律在软件内打开，绝不跳外部浏览器
+                    webView.CoreWebView2.NewWindowRequested += (s2, e2) =>
+                    {
+                        e2.Handled = true;
+                        try { webView.CoreWebView2.Navigate(e2.Uri); } catch { }
+                    };
+                }
+                webReady = true;
+            }
+            catch { webReady = false; }
+            if (webReady && pendingNav.Length > 0)
+            {
+                try { Navigate(pendingNav); } catch { }
+                pendingNav = "";
+            }
         };
 
         Controls.Add(webView);
@@ -186,63 +218,158 @@ public class MainForm : Form
     {
         try
         {
-            var env = await CoreWebView2Environment.CreateAsync();
+            Directory.CreateDirectory(Path.Combine(CfgDir, "WebView2"));
+            var env = await CoreWebView2Environment.CreateAsync(
+                userDataFolder: Path.Combine(CfgDir, "WebView2"));
             await webView.EnsureCoreWebView2Async(env);
-            webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-            Navigate(Cfg.Get("home", "https://www.qidian.com/"));
+            Navigate(GetCfg("home", "https://www.qidian.com/"));
         }
         catch (Exception ex)
         {
+            webReady = false;
+            Status("⚠️ 内置浏览器不可用，已切换 HTTP 抓取模式");
+            AddLog($"WebView2 初始化失败，启用 HTTP 兜底：{ex.Message}", false);
             MessageBox.Show(
-                "WebView2 初始化失败：" + ex.Message +
-                "\n\n请在系统安装 Microsoft Edge WebView2 Runtime（Win7 请使用 109 及以下版本运行时）。",
-                "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                "内置浏览器（WebView2）初始化失败，已自动切换为 HTTP 抓取模式：\n" +
+                "· 抓取整章 / 一键整本 / 日志 等全部抓取功能均可正常使用\n" +
+                "· 仅无法在软件内浏览动态网页\n\n" +
+                "如需内嵌浏览效果，请安装 Microsoft Edge WebView2 Runtime（Win7 请用 109 版）。\n\n" +
+                "详情：" + ex.Message,
+                "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 
     private void Navigate(string url)
     {
         if (!url.StartsWith("http://") && !url.StartsWith("https://")) url = "https://" + url;
-        webView.Source = new Uri(url);
+        txtAddress.Text = url;
+        if (webReady)
+        {
+            try { webView.Source = new Uri(url); }
+            catch (Exception ex) { Status("导航失败：" + ex.Message); }
+        }
+        else pendingNav = url;
     }
 
     private void Go() { if (txtAddress.Text.Trim().Length > 0) Navigate(txtAddress.Text.Trim()); }
 
-    // ================= 超时保护（60000 秒） =================
-    private static readonly double TimeoutSec = 60000;
-    private DateTime lastAction = DateTime.Now;
+    private string CurrentUrl()
+    {
+        if (webReady) return webView.Source?.ToString() ?? txtAddress.Text;
+        return txtAddress.Text;
+    }
 
+    // ================= 超时保护（60000 秒） =================
     private void Touch() => lastAction = DateTime.Now;
 
     private void TimeoutWatch()
     {
         if (!(grabbing || bookGrabbing) || paused) return;
         if ((DateTime.Now - lastAction).TotalSeconds < TimeoutSec) return;
+        Touch();
         if (bookGrabbing)
         {
-            var title = bookIdx < bookChapters.Count ? bookChapters[bookIdx].title : "?";
-            AddLog($"整本超时跳过章节：《{BookName()}》{title}", true);
+            var title = bookIdx < bookChapters.Count ? bookChapters[bookIdx].Key : "?";
+            AddLog($"整本超时跳过章节：《{BookName()}》{title} · {CurrentUrl()}", true);
             Status("⏱️ 加载超时（60000s），跳过：" + title);
             OnBookChapterDone(title);
         }
         else if (grabbing)
         {
-            AddLog($"单章抓取超时收尾：{pageTitle} · {webView.Source}", true);
+            AddLog($"单章抓取超时收尾：{pageTitle} · {CurrentUrl()}", true);
             Status("⏱️ 等待超时（60000s），按已抓取内容收尾");
             FinalizeChapter();
         }
-        Touch();
+    }
+
+    // ================= 页面获取（WebView 优先，HTTP 兜底） =================
+    private async Task<string> GetPageText()
+    {
+        if (webReady)
+        {
+            try
+            {
+                var r = await webView.CoreWebView2.ExecuteScriptAsync(JsGrab);
+                return Unwrap(r);
+            }
+            catch { }
+        }
+        return ExtractTextFromHtml(await FetchHtml(CurrentUrl()));
+    }
+
+    private async Task<string> GetNextPageUrl()
+    {
+        if (webReady)
+        {
+            try { return Unwrap(await webView.CoreWebView2.ExecuteScriptAsync(JsNextPage)); }
+            catch { }
+        }
+        var html = await FetchHtml(CurrentUrl());
+        var m = RxNextHref.Match(html);
+        if (!m.Success) return "";
+        var href = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[4].Value;
+        return ResolveUrl(CurrentUrl(), HttpUtility.HtmlDecode(href));
+    }
+
+    private async Task<string> FetchHtml(string url)
+    {
+        if (!url.StartsWith("http://") && !url.StartsWith("https://")) return "";
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.TryAddWithoutValidation("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36");
+            var resp = await Http.SendAsync(req);
+            var bytes = await resp.Content.ReadAsByteArrayAsync();
+            var html = Encoding.UTF8.GetString(bytes);
+            var lower = html[..Math.Min(html.Length, 2000)].ToLower();
+            if (lower.Contains("charset=gb2312") || lower.Contains("charset=gbk"))
+                html = Encoding.GetEncoding("GBK").GetString(bytes);
+            return html;
+        }
+        catch (Exception ex) { AddLog($"HTTP 获取失败：{url} · {ex.Message}", true); return ""; }
+    }
+
+    private static string ExtractTextFromHtml(string html)
+    {
+        if (html.Length == 0) return "";
+        html = Regex.Replace(html, "<script[\\s\\S]*?</script>", "", RegexOptions.IgnoreCase);
+        html = Regex.Replace(html, "<style[\\s\\S]*?</style>", "", RegexOptions.IgnoreCase);
+        html = Regex.Replace(html, "<br\\s*/?>", "\n", RegexOptions.IgnoreCase);
+        html = Regex.Replace(html, "</p>", "\n", RegexOptions.IgnoreCase);
+        html = Regex.Replace(html, "<[^>]+>", "");
+        html = HttpUtility.HtmlDecode(html);
+        var lines = html.Split('\n').Select(l => l.Trim())
+            .Where(l => l.Length > 15 && !AdLine.IsMatch(l));
+        var text = string.Join("\n", lines);
+        return text.Length > 150 ? text : "";
+    }
+
+    private static string ResolveUrl(string baseUrl, string href)
+    {
+        try { return new Uri(new Uri(baseUrl), href).ToString(); }
+        catch { return href.StartsWith("http") ? href : ""; }
+    }
+
+    private static string Unwrap(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.GetString() ?? "";
+        }
+        catch { return json; }
     }
 
     // ================= 单章抓取 =================
-    private async void StartGrab()
+    private async Task StartGrab()
     {
-        if (bookGrabbing) { MessageBox.Show("整本下载进行中"); return; }
+        if (bookGrabbing) { Info("整本下载进行中，请先完成或停止"); return; }
         if (grabbing) return;
         grabbing = true; stopRequested = false; paused = false;
         pageList.Clear(); visitedUrls.Clear();
-        visitedUrls.Add(webView.Source.ToString().Split('#')[0]);
-        pageTitle = webView.CoreWebView2?.DocumentTitle ?? "未命名章节";
+        visitedUrls.Add(CurrentUrl().Split('#')[0]);
+        pageTitle = (webReady ? webView.CoreWebView2?.DocumentTitle : null) ?? ("章节 " + DateTime.Now.ToString("MMdd-HHmmss"));
         Status("🔍 正在抓取：" + pageTitle);
         Touch();
         await ExtractChapterPage();
@@ -250,25 +377,48 @@ public class MainForm : Form
 
     private async Task ExtractChapterPage()
     {
-        string text = "";
-        try { text = await webView.CoreWebView2.ExecuteScriptAsync(JsGrab); } catch { }
-        text = Unwrap(text);
+        var text = await GetPageText();
         if (!string.IsNullOrEmpty(text)) pageList.Add(text);
+        Status($"📄 已抓取第 {pageList.Count} 页，正在检查下一页…");
         await FindNextChapterPage();
     }
 
     private async Task FindNextChapterPage()
     {
+        while (paused && !stopRequested) await Task.Delay(400);
         if (stopRequested) { FinalizeChapter(); return; }
-        if (paused) { await Task.Delay(400); await FindNextChapterPage(); return; }
-        string next = "";
-        try { next = Unwrap(await webView.CoreWebView2.ExecuteScriptAsync(JsNextPage)); } catch { }
+        var next = await GetNextPageUrl();
         var key = next.Split('#')[0];
         if (next.Length == 0 || visitedUrls.Contains(key)) { FinalizeChapter(); return; }
         visitedUrls.Add(key);
         Status("➡️ 自动翻页 " + (visitedUrls.Count - 1) + " …");
         Touch();
-        await webView.CoreWebView2.ExecuteScriptAsync($"location.href='{next.Replace("'", "\\'")}'");
+        await GoTo(next);
+        await ExtractChapterPage();
+    }
+
+    private async Task GoTo(string url)
+    {
+        if (webReady)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                void Handler(object? s, CoreWebView2NavigationCompletedEventArgs e) => tcs.TrySetResult(true);
+                webView.NavigationCompleted += Handler;
+                try
+                {
+                    webView.Source = new Uri(url);
+                    await tcs.Task.WaitAsync(TimeSpan.FromSeconds(TimeoutSec));
+                }
+                finally { webView.NavigationCompleted -= Handler; }
+                await Task.Delay(600);
+                return;
+            }
+            catch { Status("⏱️ 页面加载缓慢/失败，尝试 HTTP 模式继续"); }
+        }
+        txtAddress.Text = url;
+        await Task.Delay(100);
     }
 
     private void FinalizeChapter()
@@ -278,84 +428,98 @@ public class MainForm : Form
         if (pageList.Count == 0)
         {
             Status("❌ 未识别到正文，本站结构不兼容");
-            MessageBox.Show("未识别到正文，请尝试其他章节或书源");
+            Info("未识别到正文，请尝试其他章节或书源。\n（HTTP 兜底模式下部分 JS 动态站点无法解析）");
             return;
         }
         var raw = pageList.Count > 1
             ? string.Join("\n\n", pageList.Select((p, i) => $"──── {pageTitle} · 第 {i + 1} 节 ────\n\n{p}"))
             : pageList[0];
-        var content = Clean(raw, pageTitle);
         Status($"💾 正在保存…（共 {pageList.Count} 页）");
-        AppendTxt(content);
+        AppendTxt(Clean(raw, pageTitle));
         Status($"✅ 整章抓取完成：{pageTitle}（{pageList.Count} 页）");
     }
 
     // ================= 整本抓取 =================
-    private async void BookButton()
+    private async Task BookButton()
     {
         if (bookGrabbing) { stopRequested = true; Status("⏹ 正在停止，完成当前章节后结束…"); return; }
-        if (grabbing) { MessageBox.Show("请先等待当前章节抓取完成"); return; }
+        if (grabbing) { Info("请先等待当前章节抓取完成"); return; }
 
-        string json = "";
-        try { json = await webView.CoreWebView2.ExecuteScriptAsync(JsBookChapters); } catch { }
-        bookChapters.Clear();
-        try
+        var list = await ParseChapters();
+        if (list.Count == 0)
         {
-            using var doc = JsonDocument.Parse(Unwrap(json));
-            foreach (var el in doc.RootElement.EnumerateArray())
-                bookChapters.Add((el.GetProperty("t").GetString() ?? "", el.GetProperty("u").GetString() ?? ""));
-        }
-        catch { }
-        if (bookChapters.Count == 0)
-        {
-            MessageBox.Show("未在当前页面识别到章节列表，请先打开小说目录页再点「一键整本」");
+            Info("未在当前页面识别到章节列表，请先打开小说目录页再点「一键整本」。");
             return;
         }
+        bookChapters.Clear(); bookChapters.AddRange(list);
         bookGrabbing = true; stopRequested = false; paused = false;
         btnBook.Text = "⏹ 停止";
         Status($"📚 识别到 {bookChapters.Count} 章，开始整本下载");
-        LoadChapter(0);
+        await LoadChapter(0);
     }
 
-    private async void LoadChapter(int idx)
+    private async Task<List<KeyValuePair<string, string>>> ParseChapters()
     {
-        if (stopRequested || idx >= bookChapters.Count) { FinishBook(Math.Min(idx, bookChapters.Count)); return; }
+        var list = new List<KeyValuePair<string, string>>();
+        if (webReady)
+        {
+            try
+            {
+                var json = Unwrap(await webView.CoreWebView2.ExecuteScriptAsync(JsBookChapters));
+                using var doc = JsonDocument.Parse(json);
+                foreach (var el in doc.RootElement.EnumerateArray())
+                    list.Add(new KeyValuePair<string, string>(
+                        el.GetProperty("t").GetString() ?? "", el.GetProperty("u").GetString() ?? ""));
+                if (list.Count > 0) return list;
+            }
+            catch { }
+        }
+        var baseUrl = CurrentUrl();
+        var html = await FetchHtml(baseUrl);
+        var seen = new HashSet<string>();
+        foreach (Match m in RxChapter.Matches(html))
+        {
+            var href = ResolveUrl(baseUrl, HttpUtility.HtmlDecode(m.Groups[1].Value));
+            var t = HttpUtility.HtmlDecode(m.Groups[2].Value).Trim();
+            if (href.Length == 0 || t.Length < 2 || seen.Contains(href)) continue;
+            if (!Regex.IsMatch(t, @"^(第.{1,12}(章|节|回|卷))|^\d{1,4}(\.\d+)?$|^Chapter", RegexOptions.IgnoreCase)) continue;
+            seen.Add(href);
+            list.Add(new KeyValuePair<string, string>(t, href));
+            if (list.Count >= 9999) break;
+        }
+        return list;
+    }
+
+    private async Task LoadChapter(int idx)
+    {
+        if (stopRequested || idx >= bookChapters.Count)
+        {
+            FinishBook(Math.Min(idx, bookChapters.Count));
+            return;
+        }
+        while (paused && !stopRequested) await Task.Delay(400);
         bookIdx = idx;
-        var (title, url) = bookChapters[idx];
+        var (title, url) = (bookChapters[idx].Key, bookChapters[idx].Value);
         chapterPageList.Clear(); chapterVisited.Clear();
         chapterVisited.Add(url.Split('#')[0]);
         Status($"📚 整本进度 第 {idx + 1}/{bookChapters.Count} 章：{title}");
         Touch();
-        await webView.CoreWebView2.ExecuteScriptAsync($"location.href='{url.Replace("'", "\\'")}'");
-    }
-
-    private async void WebView_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
-    {
-        txtAddress.Text = webView.Source?.ToString() ?? "";
-        if (!bookGrabbing && !grabbing) return;
-        if (paused) return;
-        await Task.Delay(600);
-        if (bookGrabbing) await ExtractBookPage();
-        else if (grabbing) { Touch(); await ExtractChapterPage(); }
+        await GoTo(url);
+        await ExtractBookPage();
     }
 
     private async Task ExtractBookPage()
     {
-        if (paused) { await Task.Delay(400); await ExtractBookPage(); return; }
-        string text = "";
-        try { text = await webView.CoreWebView2.ExecuteScriptAsync(JsGrab); } catch { }
-        text = Unwrap(text);
+        var text = await GetPageText();
         if (!string.IsNullOrEmpty(text)) chapterPageList.Add(text);
-
-        if (paused) { await Task.Delay(400); await AfterBookPage(); return; }
         await AfterBookPage();
     }
 
     private async Task AfterBookPage()
     {
-        string next = "";
-        try { next = Unwrap(await webView.CoreWebView2.ExecuteScriptAsync(JsNextPage)); } catch { }
-        var (title, curUrl) = bookChapters[Math.Min(bookIdx, bookChapters.Count - 1)];
+        while (paused && !stopRequested) await Task.Delay(400);
+        var (title, _) = bookChapters[Math.Min(bookIdx, bookChapters.Count - 1)];
+        var next = await GetNextPageUrl();
         var key = next.Split('#')[0];
         if (stopRequested || next.Length == 0 || chapterVisited.Contains(key))
         {
@@ -365,7 +529,8 @@ public class MainForm : Form
         chapterVisited.Add(key);
         Status($"📚 第 {bookIdx + 1} 章翻页 {chapterVisited.Count - 1} …");
         Touch();
-        await webView.CoreWebView2.ExecuteScriptAsync($"location.href='{next.Replace("'", "\\'")}'");
+        await GoTo(next);
+        await ExtractBookPage();
     }
 
     private void OnBookChapterDone(string title)
@@ -382,14 +547,11 @@ public class MainForm : Form
         if (stopRequested || bookIdx >= bookChapters.Count - 1)
             FinishBook(stopRequested ? bookIdx + 1 : bookChapters.Count);
         else
-        {
-            var wait = Task.Delay(800);
-            wait.ContinueWith(t =>
+            _ = Task.Run(async () =>
             {
-                while (paused && !stopRequested) Thread.Sleep(400);
-                BeginInvoke(() => LoadChapter(bookIdx + 1));
+                await Task.Delay(800);
+                await LoadChapter(bookIdx + 1);
             });
-        }
     }
 
     private void FinishBook(int done)
@@ -397,6 +559,7 @@ public class MainForm : Form
         bookGrabbing = false; stopRequested = false; paused = false;
         btnBook.Text = "📚 一键整本"; btnPause.Text = "⏸ 暂停";
         Status($"🎉 整本下载完成：{done}/{bookChapters.Count} 章已保存");
+        Info($"整本下载完成！共 {done} 章，保存在 {SaveDirPath()}");
     }
 
     // ================= 清洗 / 保存 =================
@@ -406,8 +569,7 @@ public class MainForm : Form
             .Split('\n')
             .Select(l => l.Trim())
             .Where(l => l.Length > 0 && !AdLine.IsMatch(l));
-        var body = string.Join("\n\n", lines);
-        return $"══════ {chapterTitle} ══════\n\n{body}\n\n";
+        return $"══════ {chapterTitle} ══════\n\n{string.Join("\n\n", lines)}\n\n";
     }
 
     private string BookName()
@@ -417,20 +579,23 @@ public class MainForm : Form
         return n + ".txt";
     }
 
+    private string SaveDirPath()
+    {
+        var dir = saveDir.Length > 0 ? saveDir
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        try { Directory.CreateDirectory(dir); } catch { }
+        return dir;
+    }
+
     private void AppendTxt(string content)
     {
         try
         {
-            var name = BookName();
-            if (name != bookUriName) { /* 新书名从新文件继续追加 */ }
-            string dir = saveDir.Length > 0 ? saveDir
-                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-            Directory.CreateDirectory(dir);
-            var path = Path.Combine(dir, name);
+            var path = Path.Combine(SaveDirPath(), BookName());
             File.AppendAllText(path, content, new UTF8Encoding(false));
             Status("✅ 已追加到 " + path);
         }
-        catch (Exception ex) { Status("❌ 写入失败：" + ex.Message); }
+        catch (Exception ex) { Status("❌ 写入失败：" + ex.Message); AddLog("写入失败：" + ex.Message, true); }
     }
 
     private void PickDir()
@@ -439,7 +604,7 @@ public class MainForm : Form
         if (dlg.ShowDialog(this) == DialogResult.OK)
         {
             saveDir = dlg.SelectedPath;
-            Cfg.Set("saveDir", saveDir);
+            SetCfg("saveDir", saveDir);
             SaveConfig();
             Status("✅ TXT 将保存到：" + saveDir);
         }
@@ -447,60 +612,51 @@ public class MainForm : Form
 
     private void OpenNovelDir()
     {
-        try
-        {
-            var dir = saveDir.Length > 0 ? saveDir
-                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-            System.Diagnostics.Process.Start("explorer.exe", dir);
-        }
-        catch (Exception ex) { MessageBox.Show("无法打开目录：" + ex.Message); }
+        try { System.Diagnostics.Process.Start("explorer.exe", SaveDirPath()); }
+        catch (Exception ex) { Info("无法打开目录：" + ex.Message); }
     }
 
     private void OpenTxt()
     {
         try
         {
-            var name = BookName();
-            string dir = saveDir.Length > 0 ? saveDir
-                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-            var path = Path.Combine(dir, name);
-            if (!File.Exists(path)) { MessageBox.Show("尚未抓取任何内容：" + path); return; }
+            var path = Path.Combine(SaveDirPath(), BookName());
+            if (!File.Exists(path)) { Info("尚未抓取任何内容：" + path); return; }
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
         }
-        catch (Exception ex) { MessageBox.Show(ex.Message); }
+        catch (Exception ex) { Info(ex.Message); }
     }
 
     // ================= 收藏夹 / 日志 / 主题 / 暂停 =================
-    private async void BookmarkCurrent()
+    private void BookmarkCurrent()
     {
-        var url = webView.Source?.ToString() ?? "";
-        if (url.Length == 0) return;
-        var title = webView.CoreWebView2?.DocumentTitle ?? url;
-        if (bookmarks.Any(b => b.url == url)) { Status("该页面已在收藏夹中"); return; }
-        bookmarks.Insert(0, (title.Length > 40 ? title[..40] : title, url));
-        Cfg.Set("bookmarks", JsonSerializer.Serialize(bookmarks));
+        var url = CurrentUrl();
+        if (url.Length == 0 || !url.StartsWith("http")) { Info("请先打开一个网页"); return; }
+        var title = (webReady ? webView.CoreWebView2?.DocumentTitle : null) ?? url;
+        if (bookmarks.Any(b => b.Value == url)) { Status("该页面已在收藏夹中"); return; }
+        bookmarks.Insert(0, new KeyValuePair<string, string>(title.Length > 40 ? title[..40] : title, url));
+        SetCfg("bookmarks", JsonSerializer.Serialize(bookmarks.Select(b => new[] { b.Key, b.Value }).ToList()));
         SaveConfig();
         Status("⭐ 已收藏：" + title);
-        await Task.CompletedTask;
     }
 
     private void ShowBookmarks()
     {
-        if (bookmarks.Count == 0) { MessageBox.Show("收藏夹为空：浏览页面后点「★ 收藏」"); return; }
+        if (bookmarks.Count == 0) { Info("收藏夹为空：浏览页面后点「★ 收藏」"); return; }
         var dlg = new Form
         {
-            Text = "📂 收藏夹（点按打开，选中后点删除）", Size = new Size(560, 460),
-            StartPosition = FormStartPosition.CenterParent
+            Text = "📂 收藏夹（双击打开，选中后点删除）", Size = new Size(560, 460),
+            StartPosition = FormStartPosition.CenterParent, BackColor = BackColor, ForeColor = ForeColor
         };
         var list = new ListBox { Dock = DockStyle.Fill };
-        foreach (var (t, u) in bookmarks) list.Items.Add($"⭐ {t}\n     {u}");
+        foreach (var b in bookmarks) list.Items.Add($"⭐ {b.Key}\n     {b.Value}");
         var del = new Button { Text = "删除选中", Dock = DockStyle.Bottom, Height = 36 };
         list.DoubleClick += (s, e) =>
         {
             if (list.SelectedIndex >= 0)
             {
-                var (t, u) = bookmarks[list.SelectedIndex];
-                txtAddress.Text = u; Navigate(u); dlg.Close();
+                var b = bookmarks[list.SelectedIndex];
+                txtAddress.Text = b.Value; Navigate(b.Value); dlg.Close();
             }
         };
         del.Click += (s, e) =>
@@ -508,7 +664,8 @@ public class MainForm : Form
             if (list.SelectedIndex >= 0)
             {
                 bookmarks.RemoveAt(list.SelectedIndex);
-                Cfg.Set("bookmarks", JsonSerializer.Serialize(bookmarks)); SaveConfig();
+                SetCfg("bookmarks", JsonSerializer.Serialize(bookmarks.Select(b => new[] { b.Key, b.Value }).ToList()));
+                SaveConfig();
                 list.Items.RemoveAt(list.SelectedIndex);
             }
         };
@@ -521,7 +678,7 @@ public class MainForm : Form
         var ts = DateTime.Now.ToString("MM-dd HH:mm:ss");
         logs.Insert(0, (isError ? "🔴" : "⚪") + $" [{ts}] {msg}");
         if (logs.Count > 300) logs.RemoveAt(logs.Count - 1);
-        Cfg.Set("logs", JsonSerializer.Serialize(logs));
+        SetCfg("logs", JsonSerializer.Serialize(logs));
         SaveConfig();
     }
 
@@ -530,13 +687,14 @@ public class MainForm : Form
         var dlg = new Form
         {
             Text = "📋 爬取日志（🔴 = 超时跳过）", Size = new Size(760, 520),
-            StartPosition = FormStartPosition.CenterParent
+            StartPosition = FormStartPosition.CenterParent, BackColor = BackColor, ForeColor = ForeColor
         };
         var list = new ListBox { Dock = DockStyle.Fill, Font = new Font("Consolas", 10) };
         list.DrawMode = DrawMode.OwnerDrawFixed;
+        list.Items.AddRange(logs.ToArray());
         list.DrawItem += (s, e) =>
         {
-            if (e.Index < 0) return;
+            if (e.Index < 0 || e.Index >= logs.Count) return;
             bool isErr = logs[e.Index].StartsWith("🔴");
             e.DrawBackground();
             using var brush = new SolidBrush(isErr ? Color.Firebrick : ForeColor);
@@ -544,15 +702,14 @@ public class MainForm : Form
             e.DrawFocusRectangle();
         };
         var clear = new Button { Text = "清空日志", Dock = DockStyle.Bottom, Height = 36 };
-        clear.Click += (s, e) => { logs.Clear(); Cfg.Set("logs", "[]"); SaveConfig(); list.Items.Clear(); dlg.Close(); };
-        foreach (var l in logs) list.Items.Add(l);
+        clear.Click += (s, e) => { logs.Clear(); SetCfg("logs", "[]"); SaveConfig(); list.Items.Clear(); dlg.Close(); };
         dlg.Controls.Add(list); dlg.Controls.Add(clear);
         dlg.ShowDialog(this);
     }
 
     private void TogglePause()
     {
-        if (!(grabbing || bookGrabbing)) { MessageBox.Show("当前没有进行中的下载"); return; }
+        if (!(grabbing || bookGrabbing)) { Info("当前没有进行中的下载"); return; }
         paused = !paused;
         btnPause.Text = paused ? "▶ 继续" : "⏸ 暂停";
         Status(paused ? "⏸ 已暂停，点「▶ 继续」恢复" : "▶ 已继续下载");
@@ -561,14 +718,22 @@ public class MainForm : Form
     private void ToggleTheme()
     {
         dark = !dark;
-        Cfg.Set("night", dark ? "1" : "");
+        SetCfg("night", dark ? "1" : "");
         SaveConfig();
         ApplyTheme();
+        if (webReady)
+        {
+            try
+            {
+                webView.CoreWebView2.Profile.PreferredColorScheme =
+                    dark ? CoreWebView2PreferredColorScheme.Dark : CoreWebView2PreferredColorScheme.Light;
+            }
+            catch { }
+        }
     }
 
     private void ApplyTheme()
     {
-        // 简约风：浅色=灰白底白卡片；深色=石墨黑深灰卡片
         Color bg = dark ? Color.FromArgb(17, 24, 39) : Color.FromArgb(242, 244, 247);
         Color card = dark ? Color.FromArgb(31, 41, 55) : Color.White;
         Color fg = dark ? Color.FromArgb(249, 250, 251) : Color.FromArgb(17, 24, 39);
@@ -596,54 +761,43 @@ public class MainForm : Form
         btnTheme.Text = dark ? "☀️ 主题" : "🌙 主题";
     }
 
-    private void Status(string s) { Text = "小说爬取 v2.8 — " + s; }
+    private void Status(string s) { Text = "小说爬取 v3.0 — " + s; }
+
+    private void Info(string msg) => MessageBox.Show(this, msg, "小说爬取", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
     // ================= 配置 =================
-    private static class Cfg
-    {
-        public static string Get(string k, string def = "") => Data.TryGetValue(k, out var v) ? v : def;
-        public static bool GetBool(string k) => Get(k) == "1";
-        public static void Set(string k, string v) => Data[k] = v;
-        public static Dictionary<string, string> Data = new();
-    }
+    private static string GetCfg(string k, string def = "") => cfg.TryGetValue(k, out var v) ? v : def;
+    private static void SetCfg(string k, string v) => cfg[k] = v;
 
     private void LoadConfig()
     {
         try
         {
             if (File.Exists(CfgPath))
-                Cfg.Data = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(CfgPath))
-                           ?? new Dictionary<string, string>();
-            saveDir = Cfg.Get("saveDir");
-            var bm = Cfg.Get("bookmarks");
+                cfg = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(CfgPath))
+                       ?? new Dictionary<string, string>();
+            saveDir = GetCfg("saveDir");
+            var bm = GetCfg("bookmarks");
             if (bm.Length > 0)
-                bookmarks.AddRange(JsonSerializer.Deserialize<List<(string, string)>>(bm)
-                    ?.Select(x => (x.Item1, x.Item2)) ?? new List<(string, string)>());
-            var lg = Cfg.Get("logs");
-            if (lg.Length > 0)
-                logs.AddRange(JsonSerializer.Deserialize<List<string>>(lg) ?? new List<string>());
+            {
+                var arr = JsonSerializer.Deserialize<List<string[]>>(bm) ?? new List<string[]>();
+                foreach (var pair in arr)
+                    if (pair.Length == 2) bookmarks.Add(new KeyValuePair<string, string>(pair[0], pair[1]));
+            }
+            var lg = GetCfg("logs");
+            if (lg.Length > 0) logs.AddRange(JsonSerializer.Deserialize<List<string>>(lg) ?? new List<string>());
         }
-        catch { Cfg.Data = new Dictionary<string, string>(); }
+        catch { cfg = new Dictionary<string, string>(); }
     }
 
     private void SaveConfig()
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(CfgPath)!);
-            File.WriteAllText(CfgPath, JsonSerializer.Serialize(Cfg.Data));
+            Directory.CreateDirectory(CfgDir);
+            File.WriteAllText(CfgPath, JsonSerializer.Serialize(cfg));
         }
         catch { }
-    }
-
-    private static string Unwrap(string json)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            return doc.RootElement.GetString() ?? "";
-        }
-        catch { return json; }
     }
 
     [STAThread]
