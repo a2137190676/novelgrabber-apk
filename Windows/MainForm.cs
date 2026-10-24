@@ -117,7 +117,7 @@ public class MainForm : Form
 
     public MainForm()
     {
-        Text = "小说爬取 v3.0";
+        Text = "小说爬取 v3.1";
         Size = new Size(1100, 780);
         StartPosition = FormStartPosition.CenterScreen;
 
@@ -137,24 +137,24 @@ public class MainForm : Form
     {
         var top = new FlowLayoutPanel
         {
-            Dock = DockStyle.Top, Height = 96, FlowDirection = FlowDirection.LeftToRight,
+            Dock = DockStyle.Top, Height = 60, FlowDirection = FlowDirection.LeftToRight,
             Padding = new Padding(8), WrapContents = false
         };
         btnBack = MkBtn("◀", 36); btnBack.Click += (s, e) => { try { if (webReady && webView.CanGoBack) webView.GoBack(); } catch { } };
         btnForward = MkBtn("▶", 36); btnForward.Click += (s, e) => { try { if (webReady && webView.CanGoForward) webView.GoForward(); } catch { } };
-        txtAddress = new TextBox { Width = 420 };
+        txtAddress = new TextBox { Width = 420, Anchor = AnchorStyles.Left, Margin = new Padding(4, 10, 4, 10) };
         txtAddress.PlaceholderText = "输入小说网址";
         txtAddress.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { Go(); e.SuppressKeyPress = true; } };
         btnGo = MkBtn("前往", 60); btnGo.Click += (s, e) => Go();
         btnStar = MkBtn("★ 收藏", 70); btnStar.Click += (s, e) => BookmarkCurrent();
-        txtBookName = new TextBox { Width = 170 };
+        txtBookName = new TextBox { Width = 170, Anchor = AnchorStyles.Left, Margin = new Padding(4, 10, 4, 10) };
         txtBookName.PlaceholderText = "书名（TXT 文件名）";
         btnPickDir = MkBtn("目录", 70); btnPickDir.Click += (s, e) => PickDir();
         top.Controls.AddRange(new Control[] { btnBack, btnForward, txtAddress, btnGo, btnStar, txtBookName, btnPickDir });
 
         var bottom = new FlowLayoutPanel
         {
-            Dock = DockStyle.Bottom, Height = 96, FlowDirection = FlowDirection.LeftToRight,
+            Dock = DockStyle.Bottom, Height = 60, FlowDirection = FlowDirection.LeftToRight,
             Padding = new Padding(8), WrapContents = false
         };
         btnGrab = MkBtn("抓取整章", 110); btnGrab.Click += (s, e) => _ = StartGrab();
@@ -211,7 +211,7 @@ public class MainForm : Form
 
     private static Button MkBtn(string text, int width) => new()
     {
-        Text = text, Width = width, Height = 34, Margin = new Padding(4, 26, 4, 4)
+        Text = text, Width = width, Height = 34, Margin = new Padding(4, 5, 4, 5)
     };
 
     private async void InitWebView()
