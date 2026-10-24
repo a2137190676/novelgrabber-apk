@@ -149,7 +149,7 @@ public class MainForm : Form
         btnStar = MkBtn("★ 收藏", 70); btnStar.Click += (s, e) => BookmarkCurrent();
         txtBookName = new TextBox { Width = 170 };
         txtBookName.PlaceholderText = "书名（TXT 文件名）";
-        btnPickDir = MkBtn("📁 目录", 70); btnPickDir.Click += (s, e) => PickDir();
+        btnPickDir = MkBtn("目录", 70); btnPickDir.Click += (s, e) => PickDir();
         top.Controls.AddRange(new Control[] { btnBack, btnForward, txtAddress, btnGo, btnStar, txtBookName, btnPickDir });
 
         var bottom = new FlowLayoutPanel
@@ -157,14 +157,14 @@ public class MainForm : Form
             Dock = DockStyle.Bottom, Height = 96, FlowDirection = FlowDirection.LeftToRight,
             Padding = new Padding(8), WrapContents = false
         };
-        btnGrab = MkBtn("⚡ 抓取整章", 110); btnGrab.Click += (s, e) => _ = StartGrab();
-        btnBook = MkBtn("📚 一键整本", 110); btnBook.Click += (s, e) => _ = BookButton();
-        btnBookmarks = MkBtn("📂 收藏夹", 88); btnBookmarks.Click += (s, e) => ShowBookmarks();
-        btnOpenDir = MkBtn("📁 小说夹", 88); btnOpenDir.Click += (s, e) => OpenNovelDir();
-        btnPause = MkBtn("⏸ 暂停", 76); btnPause.Click += (s, e) => TogglePause();
-        btnTheme = MkBtn("🌙 主题", 76); btnTheme.Click += (s, e) => ToggleTheme();
-        btnLog = MkBtn("📋 日志", 76); btnLog.Click += (s, e) => ShowLogs();
-        btnFinish = MkBtn("💾 打开TXT", 96); btnFinish.Click += (s, e) => OpenTxt();
+        btnGrab = MkBtn("抓取整章", 110); btnGrab.Click += (s, e) => _ = StartGrab();
+        btnBook = MkBtn("一键整本", 110); btnBook.Click += (s, e) => _ = BookButton();
+        btnBookmarks = MkBtn("收藏夹", 88); btnBookmarks.Click += (s, e) => ShowBookmarks();
+        btnOpenDir = MkBtn("小说夹", 88); btnOpenDir.Click += (s, e) => OpenNovelDir();
+        btnPause = MkBtn("暂停", 76); btnPause.Click += (s, e) => TogglePause();
+        btnTheme = MkBtn("主题", 76); btnTheme.Click += (s, e) => ToggleTheme();
+        btnLog = MkBtn("日志", 76); btnLog.Click += (s, e) => ShowLogs();
+        btnFinish = MkBtn("打开TXT", 96); btnFinish.Click += (s, e) => OpenTxt();
         bottom.Controls.AddRange(new Control[]
             { btnGrab, btnBook, btnBookmarks, btnOpenDir, btnPause, btnTheme, btnLog, btnFinish });
 
@@ -227,7 +227,7 @@ public class MainForm : Form
         catch (Exception ex)
         {
             webReady = false;
-            Status("⚠️ 内置浏览器不可用，已切换 HTTP 抓取模式");
+            Status("[警告] 内置浏览器不可用，已切换 HTTP 抓取模式");
             AddLog($"WebView2 初始化失败，启用 HTTP 兜底：{ex.Message}", false);
             MessageBox.Show(
                 "内置浏览器（WebView2）初始化失败，已自动切换为 HTTP 抓取模式：\n" +
@@ -271,13 +271,13 @@ public class MainForm : Form
         {
             var title = bookIdx < bookChapters.Count ? bookChapters[bookIdx].Key : "?";
             AddLog($"整本超时跳过章节：《{BookName()}》{title} · {CurrentUrl()}", true);
-            Status("⏱️ 加载超时（60000s），跳过：" + title);
+            Status("[超时] 加载超时（60000s），跳过：" + title);
             OnBookChapterDone(title);
         }
         else if (grabbing)
         {
             AddLog($"单章抓取超时收尾：{pageTitle} · {CurrentUrl()}", true);
-            Status("⏱️ 等待超时（60000s），按已抓取内容收尾");
+            Status("[超时] 等待超时（60000s），按已抓取内容收尾");
             FinalizeChapter();
         }
     }
@@ -391,7 +391,7 @@ public class MainForm : Form
         var key = next.Split('#')[0];
         if (next.Length == 0 || visitedUrls.Contains(key)) { FinalizeChapter(); return; }
         visitedUrls.Add(key);
-        Status("➡️ 自动翻页 " + (visitedUrls.Count - 1) + " …");
+        Status("自动翻页 " + (visitedUrls.Count - 1) + " …");
         Touch();
         await GoTo(next);
         await ExtractChapterPage();
@@ -415,7 +415,7 @@ public class MainForm : Form
                 await Task.Delay(600);
                 return;
             }
-            catch { Status("⏱️ 页面加载缓慢/失败，尝试 HTTP 模式继续"); }
+            catch { Status("[超时] 页面加载缓慢/失败，尝试 HTTP 模式继续"); }
         }
         txtAddress.Text = url;
         await Task.Delay(100);
@@ -434,9 +434,9 @@ public class MainForm : Form
         var raw = pageList.Count > 1
             ? string.Join("\n\n", pageList.Select((p, i) => $"──── {pageTitle} · 第 {i + 1} 节 ────\n\n{p}"))
             : pageList[0];
-        Status($"💾 正在保存…（共 {pageList.Count} 页）");
+        Status($"正在保存…（共 {pageList.Count} 页）");
         AppendTxt(Clean(raw, pageTitle));
-        Status($"✅ 整章抓取完成：{pageTitle}（{pageList.Count} 页）");
+        Status($"整章抓取完成：{pageTitle}（{pageList.Count} 页）");
     }
 
     // ================= 整本抓取 =================
@@ -454,7 +454,7 @@ public class MainForm : Form
         bookChapters.Clear(); bookChapters.AddRange(list);
         bookGrabbing = true; stopRequested = false; paused = false;
         btnBook.Text = "⏹ 停止";
-        Status($"📚 识别到 {bookChapters.Count} 章，开始整本下载");
+        Status($"识别到 {bookChapters.Count} 章，开始整本下载");
         await LoadChapter(0);
     }
 
@@ -502,7 +502,7 @@ public class MainForm : Form
         var (title, url) = (bookChapters[idx].Key, bookChapters[idx].Value);
         chapterPageList.Clear(); chapterVisited.Clear();
         chapterVisited.Add(url.Split('#')[0]);
-        Status($"📚 整本进度 第 {idx + 1}/{bookChapters.Count} 章：{title}");
+        Status($"整本进度 第 {idx + 1}/{bookChapters.Count} 章：{title}");
         Touch();
         await GoTo(url);
         await ExtractBookPage();
@@ -527,7 +527,7 @@ public class MainForm : Form
             return;
         }
         chapterVisited.Add(key);
-        Status($"📚 第 {bookIdx + 1} 章翻页 {chapterVisited.Count - 1} …");
+        Status($"第 {bookIdx + 1} 章翻页 {chapterVisited.Count - 1} …");
         Touch();
         await GoTo(next);
         await ExtractBookPage();
@@ -557,7 +557,7 @@ public class MainForm : Form
     private void FinishBook(int done)
     {
         bookGrabbing = false; stopRequested = false; paused = false;
-        btnBook.Text = "📚 一键整本"; btnPause.Text = "⏸ 暂停";
+        btnBook.Text = "一键整本"; btnPause.Text = "暂停";
         Status($"🎉 整本下载完成：{done}/{bookChapters.Count} 章已保存");
         Info($"整本下载完成！共 {done} 章，保存在 {SaveDirPath()}");
     }
@@ -593,7 +593,7 @@ public class MainForm : Form
         {
             var path = Path.Combine(SaveDirPath(), BookName());
             File.AppendAllText(path, content, new UTF8Encoding(false));
-            Status("✅ 已追加到 " + path);
+            Status("已追加到 " + path);
         }
         catch (Exception ex) { Status("❌ 写入失败：" + ex.Message); AddLog("写入失败：" + ex.Message, true); }
     }
@@ -606,7 +606,7 @@ public class MainForm : Form
             saveDir = dlg.SelectedPath;
             SetCfg("saveDir", saveDir);
             SaveConfig();
-            Status("✅ TXT 将保存到：" + saveDir);
+            Status("TXT 将保存到：" + saveDir);
         }
     }
 
@@ -645,7 +645,7 @@ public class MainForm : Form
         if (bookmarks.Count == 0) { Info("收藏夹为空：浏览页面后点「★ 收藏」"); return; }
         var dlg = new Form
         {
-            Text = "📂 收藏夹（双击打开，选中后点删除）", Size = new Size(560, 460),
+            Text = "收藏夹（双击打开，选中后点删除）", Size = new Size(560, 460),
             StartPosition = FormStartPosition.CenterParent, BackColor = BackColor, ForeColor = ForeColor
         };
         var list = new ListBox { Dock = DockStyle.Fill };
@@ -676,7 +676,7 @@ public class MainForm : Form
     private void AddLog(string msg, bool isError)
     {
         var ts = DateTime.Now.ToString("MM-dd HH:mm:ss");
-        logs.Insert(0, (isError ? "🔴" : "⚪") + $" [{ts}] {msg}");
+        logs.Insert(0, (isError ? "[!] " : "    ") + $" [{ts}] {msg}");
         if (logs.Count > 300) logs.RemoveAt(logs.Count - 1);
         SetCfg("logs", JsonSerializer.Serialize(logs));
         SaveConfig();
@@ -686,7 +686,7 @@ public class MainForm : Form
     {
         var dlg = new Form
         {
-            Text = "📋 爬取日志（🔴 = 超时跳过）", Size = new Size(760, 520),
+            Text = "爬取日志（[!] = 超时跳过）", Size = new Size(760, 520),
             StartPosition = FormStartPosition.CenterParent, BackColor = BackColor, ForeColor = ForeColor
         };
         var list = new ListBox { Dock = DockStyle.Fill, Font = new Font("Consolas", 10) };
@@ -695,7 +695,7 @@ public class MainForm : Form
         list.DrawItem += (s, e) =>
         {
             if (e.Index < 0 || e.Index >= logs.Count) return;
-            bool isErr = logs[e.Index].StartsWith("🔴");
+            bool isErr = logs[e.Index].StartsWith("[!]");
             e.DrawBackground();
             using var brush = new SolidBrush(isErr ? Color.Firebrick : ForeColor);
             e.Graphics.DrawString(logs[e.Index], e.Font ?? Font, brush, e.Bounds);
@@ -711,8 +711,8 @@ public class MainForm : Form
     {
         if (!(grabbing || bookGrabbing)) { Info("当前没有进行中的下载"); return; }
         paused = !paused;
-        btnPause.Text = paused ? "▶ 继续" : "⏸ 暂停";
-        Status(paused ? "⏸ 已暂停，点「▶ 继续」恢复" : "▶ 已继续下载");
+        btnPause.Text = paused ? "继续" : "暂停";
+        Status(paused ? "已暂停，点「继续」恢复" : "已继续下载");
     }
 
     private void ToggleTheme()
@@ -758,7 +758,7 @@ public class MainForm : Form
         txtAddress.BackColor = card; txtAddress.ForeColor = fg;
         txtBookName.BackColor = card; txtBookName.ForeColor = fg;
         webView.DefaultBackgroundColor = bg;
-        btnTheme.Text = dark ? "☀️ 主题" : "🌙 主题";
+        btnTheme.Text = dark ? "主题" : "主题";
     }
 
     private void Status(string s) { Text = "小说爬取 v3.0 — " + s; }
